@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ScrumBan</title>
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="side">
+      <div class="side-inner">
+        <div class="brand">ScrumBan</div>
+        <nav class="nav" id="nav" aria-label="Pages"></nav>
+        <p class="side-note" id="data-note"></p>
+      </div>
+    </aside>
+    <main class="main">
+      <header class="top" id="top">
+        <div>
+          <p class="eyebrow">Showing</p>
+          <p class="window" id="window-label">Loading…</p>
+        </div>
+        <div class="filters">
+          <div class="seg" id="range" role="group" aria-label="Period"></div>
+          <span class="custom-dates" id="custom-dates" hidden>
+            <input type="date" id="from" aria-label="From"> – <input type="date" id="to" aria-label="To">
+          </span>
+          <select id="project" aria-label="Project"><option value="">All projects</option></select>
+          <button type="button" class="btn" id="reset">Reset</button>
+        </div>
+      </header>
+      <div id="page"></div>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <script src="/vendor/d3.min.js"></script>
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

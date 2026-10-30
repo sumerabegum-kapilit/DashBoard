@@ -1,0 +1,1307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard Baseline · Mockup</title>
+<!--
+==========================================================================================
+  DASHBOARD BASELINE — STATIC MOCKUP
+==========================================================================================
+  A self-contained reference UI for analytics dashboards. No server, no internet, no libraries.
+  All numbers are SAMPLE DATA generated in the browser.
+
+  HOW THIS FILE IS ORGANISED (read in this order)
+    1. <script id="dashboard-spec" type="application/json">
+         The whole app described as data: app name, filters, KPI tiles, pages, cards, chart
+         types, the Build-a-view data model and the data contracts every chart expects.
+         The UI is generated from this JSON; to adapt the dashboard, edit the JSON first.
+    2. <style> — DESIGN TOKENS (:root variables) then components. Re-theme by changing tokens.
+    3. <body> — three layout regions: data-region="sidebar" | "topbar" | "page".
+    4. <script> — sections marked  // ==== N. NAME ====
+         1 Utilities · 2 Sample data (replace with API) · 3 Charts · 4 Render (payload -> chart)
+         5 Cards board (drag/resize/hide/view) · 6 Standard pages · 7 Build a view
+         8 My dashboard · 9 Blueprint page · 10 Filters and router
+
+  TO USE IN ANOTHER APPLICATION
+    a. Change "app", "filters", "kpis" and "pages" in the spec to that application's domain.
+    b. Make the backend return the payload shapes in "contracts" (category / time / heat / table / overview).
+    c. Replace SAMPLE.widget(), SAMPLE.overview(), SAMPLE.table() and SAMPLE.model with fetch() calls.
+       Nothing else needs to change: charts, cards, layout and interactions read only those shapes.
+==========================================================================================
+-->
+
+<!-- ======================= 1. SPEC: the dashboard described as data ======================= -->
+<script id="dashboard-spec" type="application/json">
+{
+  "app": { "name": "ScrumBan", "tagline": "Delivery dashboard", "asOf": "2026-10-29", "dataStart": "2026-07-22" },
+  "layout": {
+    "sidebar": "Left, full page height, light-blue gradient, sticky. Brand, page links, data note.",
+    "topbar": "Blue gradient band: the period shown on the left, filters on the right. Hidden on Build a view, My dashboard and Blueprint.",
+    "page": "Page title, optional KPI strip (4 columns x 2 rows), then a board: a 6-column grid of cards. Card width 2-6 columns. Below 1100px every card is full width; below 760px the sidebar becomes a top bar."
+  },
+  "filters": {
+    "range": { "label": "Period", "default": "7d", "options": [
+      { "id": "7d", "label": "7 days", "days": 7 }, { "id": "30d", "label": "30 days", "days": 30 },
+      { "id": "90d", "label": "90 days", "days": 90 }, { "id": "180d", "label": "6 months", "days": 182 },
+      { "id": "365d", "label": "1 year", "days": 365 }, { "id": "all", "label": "All time", "days": 100 },
+      { "id": "custom", "label": "Custom" } ] },
+    "project": { "label": "Project", "options": ["Atlas", "Beacon", "Cedar", "Delta", "Ember", "Falcon"] }
+  },
+  "kpis": [
+    { "id": "completed", "label": "Completed", "format": "int", "better": "up", "color": "#1d4ed8", "base": 180 },
+    { "id": "created", "label": "Created", "format": "int", "better": null, "color": "#2563eb", "base": 150 },
+    { "id": "points", "label": "Story points done", "format": "int", "better": "up", "color": "#1e40af", "base": 230 },
+    { "id": "cycle_hours", "label": "Median cycle time (h)", "format": "dec", "better": "down", "color": "#0369a1", "base": 4.6 },
+    { "id": "hours", "label": "Hours logged", "format": "int", "better": null, "color": "#0e7490", "base": 230 },
+    { "id": "open_now", "label": "Open now", "format": "int", "better": null, "color": "#1e3a8a", "base": 1040, "snapshot": true },
+    { "id": "overdue", "label": "Overdue now", "format": "int", "better": null, "color": "#b91c1c", "base": 259, "snapshot": true },
+    { "id": "urgent", "label": "Critical or high, open", "format": "int", "better": null, "color": "#334155", "base": 440, "snapshot": true }
+  ],
+  "health": [
+    { "id": "on_time_share", "label": "On time", "sample": 0.75 },
+    { "id": "owned_share", "label": "Has an owner", "sample": 0.67 },
+    { "id": "estimated_share", "label": "Estimated", "sample": 0.75 },
+    { "id": "ready_share", "label": "Ready to start", "sample": 0.04 }
+  ],
+  "healthRule": "Good at 80% or more, Watch from 50%, Risk below 50%.",
+  "chartTypes": {
+    "category": [["bar","Bars"],["column","Columns"],["lollipop","Lollipop"],["donut","Donut"],["pie","Pie"],["treemap","Treemap"],["waffle","Waffle"],["radar","Radar"],["funnel","Funnel"],["table","Table"]],
+    "compare": [["bar","Bars"],["column","Columns"],["lollipop","Lollipop"],["radar","Radar"],["table","Table"]],
+    "time": [["line","Line"],["step","Step line"],["dots","Dots"],["area","Stacked area"],["stack","Stacked columns"],["group","Grouped columns"],["heat","Heatmap"],["table","Table"]],
+    "timeNoStack": [["line","Line"],["step","Step line"],["dots","Dots"],["group","Grouped columns"],["heat","Heatmap"],["table","Table"]],
+    "heat": [["heat","Heatmap"],["table","Table"]]
+  },
+  "chartRules": [
+    "compare: values that are not parts of one whole (percentages, done vs not done) never get donut, pie, treemap, waffle or funnel.",
+    "timeNoStack: lines in different units, or where one line is part of another, are never stacked.",
+    "Red is reserved for problems: overdue, blocked, critical, bugs. Everything else uses the blue family."
+  ],
+  "pages": [
+    { "id": "overview", "label": "Overview", "kpis": true, "cards": [
+      { "id": "ov-trends", "title": "Trends", "kind": "time", "w": 4, "views": "timeNoStack", "chips": true, "shapes": true,
+        "sample": { "mixedUnits": true, "series": [
+          { "name": "completed", "label": "Completed", "base": 26 }, { "name": "created", "label": "Created", "base": 22 },
+          { "name": "points", "label": "Story points done", "base": 33 }, { "name": "cycle", "label": "Median cycle time (h)", "base": 5, "fmt": "dec" },
+          { "name": "hours", "label": "Hours logged", "base": 32, "fmt": "hours" } ] } },
+      { "id": "ov-health", "title": "Health right now", "kind": "health", "w": 2 },
+      { "id": "ov-status", "title": "All work by status", "kind": "category", "w": 3, "views": "category", "view": "donut",
+        "sample": { "dim": "status", "names": ["To Do", "In Progress", "In Review", "Blocked", "Done"], "weights": [6.7, 2.1, 1.7, 0.4, 25], "unit": 100, "snapshot": true } },
+      { "id": "ov-priority", "title": "Open work by priority", "kind": "category", "w": 3, "views": "category",
+        "sample": { "dim": "priority", "names": ["critical", "high", "medium", "low"], "weights": [0.8, 4, 5.6, 0.1], "unit": 100, "snapshot": true,
+          "segs": [["overdue", "Overdue"], ["on_time", "On time or no due date"]], "segDim": "overdue" } },
+      { "id": "ov-projects", "title": "Projects with the most open work", "kind": "category", "w": 3, "views": "category",
+        "sample": { "dim": "project", "names": ["Atlas", "Beacon", "Cedar", "Delta", "Ember", "Falcon"], "unit": 25, "snapshot": true,
+          "segs": [["To Do", "To Do"], ["In Progress", "In Progress"], ["In Review", "In Review"], ["Blocked", "Blocked"]], "segDim": "status" } },
+      { "id": "ov-people", "title": "Open work per person", "kind": "category", "w": 3, "views": "category",
+        "sample": { "dim": "person", "names": ["Asha R", "Ben K", "Chitra M", "Dev P", "Esha N", "Farhan S", "Gita L"], "unit": 9, "snapshot": true,
+          "segs": [["critical", "Critical"], ["high", "High"], ["medium", "Medium"], ["low", "Low"]], "segDim": "priority" } },
+      { "id": "ov-throughput", "title": "Throughput by work item type", "kind": "time", "w": 3, "views": "time", "view": "stack", "chips": true,
+        "sample": { "dim": "type", "series": [ { "name": "task", "base": 14 }, { "name": "user_story", "base": 9 }, { "name": "bug", "base": 2 }, { "name": "epic", "base": 1 } ] } },
+      { "id": "ov-cfd", "title": "Cumulative flow", "kind": "time", "w": 3, "views": "time", "view": "area", "chips": true,
+        "sample": { "dim": "column", "cumulative": true, "series": [ { "name": "Done", "base": 30 }, { "name": "In Review", "base": 4 }, { "name": "In Progress", "base": 5 }, { "name": "Backlog", "base": 8 } ] } },
+      { "id": "ov-cycle", "title": "How long work takes", "kind": "category", "w": 3, "views": "category",
+        "sample": { "dim": "bucket", "names": ["Under 1 hour", "1 to 8 hours", "8 to 24 hours", "1 to 3 days", "3 to 7 days", "1 to 2 weeks", "2 weeks or more"], "weights": [9, 3, 2, 2, 1.5, 1, 0.8], "unit": 12 } },
+      { "id": "ov-bugs", "title": "Bugs reported vs fixed", "kind": "time", "w": 3, "views": "timeNoStack", "chips": true,
+        "sample": { "series": [ { "name": "reported", "label": "Reported", "base": 3, "color": "critical" }, { "name": "fixed", "label": "Fixed", "base": 2.6 } ] } },
+      { "id": "ov-heat", "title": "When the team works", "kind": "heat", "w": 6, "views": "heat" }
+    ] },
+    { "id": "delivery", "label": "Delivery & flow", "cards": [
+      { "id": "dl-throughput", "title": "Throughput by work item type", "kind": "time", "w": 6, "views": "time", "view": "stack", "chips": true, "sampleFrom": "ov-throughput" },
+      { "id": "dl-backlog", "title": "Open and overdue work over time", "kind": "time", "w": 3, "views": "timeNoStack", "chips": true,
+        "sample": { "series": [ { "name": "open", "label": "Open", "base": 1000, "flat": true }, { "name": "overdue", "label": "Overdue", "base": 250, "flat": true, "color": "critical" } ] } },
+      { "id": "dl-cfd", "title": "Cumulative flow", "kind": "time", "w": 3, "views": "time", "view": "area", "chips": true, "sampleFrom": "ov-cfd" },
+      { "id": "dl-cycle", "title": "How long work takes", "kind": "category", "w": 3, "views": "category", "sampleFrom": "ov-cycle" },
+      { "id": "dl-age", "title": "Age of open work", "kind": "category", "w": 3, "views": "category",
+        "sample": { "dim": "bucket", "names": ["0 to 7 days", "8 to 30 days", "31 to 60 days", "61 to 90 days", "Over 90 days"], "weights": [2, 4, 3, 1.5, 0.5], "unit": 60, "snapshot": true,
+          "segs": [["critical", "Critical"], ["high", "High"], ["medium", "Medium"], ["low", "Low"]], "segDim": "priority" } }
+    ] },
+    { "id": "projects", "label": "Projects", "cards": [
+      { "id": "pj-bars", "title": "Projects with the most open work", "kind": "category", "w": 6, "views": "category", "sampleFrom": "ov-projects" },
+      { "id": "pj-table", "title": "Project health", "kind": "table", "w": 6, "table": "projects" }
+    ] },
+    { "id": "team", "label": "Team", "cards": [
+      { "id": "tm-open", "title": "Open work per person", "kind": "category", "w": 3, "views": "category", "sampleFrom": "ov-people" },
+      { "id": "tm-done", "title": "Completed per person", "kind": "category", "w": 3, "views": "category",
+        "sample": { "dim": "person", "names": ["Asha R", "Ben K", "Chitra M", "Dev P", "Esha N", "Farhan S", "Gita L"], "unit": 4 } },
+      { "id": "tm-hours", "title": "Hours logged by the top 4 people", "kind": "time", "w": 3, "views": "time", "chips": true,
+        "sample": { "dim": "person", "fmt": "hours", "series": [ { "name": "Asha R", "base": 6 }, { "name": "Ben K", "base": 5 }, { "name": "Chitra M", "base": 4 }, { "name": "Dev P", "base": 3 } ] } },
+      { "id": "tm-roles", "title": "Team roles", "kind": "category", "w": 3, "views": "category", "view": "donut",
+        "sample": { "dim": "role", "names": ["developer", "product_owner", "scrum_master", "qa_tester", "stakeholder"], "weights": [20, 13, 3, 2.3, 0.8], "unit": 10, "snapshot": true } }
+    ] },
+    { "id": "sprints", "label": "Sprints", "cards": [
+      { "id": "sp-status", "title": "Sprint status", "kind": "category", "w": 3, "views": "category", "view": "donut",
+        "sample": { "dim": "sprint_status", "names": ["Future", "Active", "Active, past end date", "Closed"], "weights": [54, 2, 5, 2], "unit": 1, "snapshot": true } },
+      { "id": "sp-points", "title": "Story points per sprint", "kind": "category", "w": 3, "views": "compare",
+        "sample": { "dim": "sprint", "names": ["ATL · Sprint 4", "BEA · Sprint 2", "CED · Sprint 7", "DEL · Sprint 1"], "unit": 8, "snapshot": true,
+          "segs": [["done", "Done"], ["not_done", "Not done"]], "segDim": "done" } },
+      { "id": "sp-table", "title": "All sprints", "kind": "table", "w": 6, "table": "sprints" }
+    ] },
+    { "id": "quality", "label": "Quality & risk", "cards": [
+      { "id": "ql-bugs", "title": "Bugs reported vs fixed", "kind": "time", "w": 6, "views": "timeNoStack", "chips": true, "sampleFrom": "ov-bugs" },
+      { "id": "ql-overdue", "title": "Overdue work by project", "kind": "category", "w": 3, "views": "category",
+        "sample": { "dim": "project", "names": ["Atlas", "Beacon", "Cedar", "Delta", "Ember"], "unit": 12, "snapshot": true,
+          "segs": [["critical", "Critical"], ["high", "High"], ["medium", "Medium"], ["low", "Low"]], "segDim": "priority" } },
+      { "id": "ql-ready", "title": "Ready-to-start checks done", "kind": "category", "w": 3, "views": "compare",
+        "sample": { "dim": "area", "fmt": "pct", "max": 1, "names": ["story_clarity", "testability", "acceptance_criteria", "design_ux", "sizing_estimation", "dependencies"], "pct": true, "snapshot": true } }
+    ] },
+    { "id": "activity", "label": "Activity", "cards": [
+      { "id": "ac-heat", "title": "When the team works", "kind": "heat", "w": 6, "views": "heat" },
+      { "id": "ac-trend", "title": "Activity over time", "kind": "time", "w": 4, "views": "time", "chips": true,
+        "sample": { "dim": "action", "series": [ { "name": "issue.status_changed", "base": 80 }, { "name": "issue.updated", "base": 45 }, { "name": "issue.created", "base": 38 }, { "name": "issue.assignee_changed", "base": 7 } ] } },
+      { "id": "ac-people", "title": "Most active people", "kind": "category", "w": 2, "views": "category",
+        "sample": { "dim": "person", "names": ["Asha R", "Ben K", "Chitra M", "Dev P", "Esha N"], "unit": 60 } }
+    ] },
+    { "id": "build", "label": "Build a view", "special": "build" },
+    { "id": "mine", "label": "My dashboard", "special": "mine" },
+    { "id": "blueprint", "label": "Blueprint", "special": "blueprint" }
+  ],
+  "tables": {
+    "projects": { "search": true, "sort": "open", "columns": [
+      ["project", "Project", "text"], ["type", "Type", "cap"], ["open", "Open", "int"], ["overdue", "Overdue", "hot"], ["blocked", "Blocked", "hot"],
+      ["created", "Created", "int"], ["completed", "Completed", "int"], ["done_share", "Done overall", "pct"], ["hours", "Hours", "int"] ] },
+    "sprints": { "search": false, "sort": "start", "columns": [
+      ["sprint", "Sprint", "text"], ["status", "Status", "cap"], ["start", "Start", "text"], ["end", "End", "text"],
+      ["items", "Items", "int"], ["items_done", "Items done", "int"], ["points", "Points", "int"], ["points_done", "Points done", "int"] ] }
+  },
+  "model": {
+    "note": "Build a view: tables, their fields and how they link. A person picks a table, what to calculate, how to group and filter, and a chart. In a real app the server turns these choices into SQL with parameters.",
+    "tables": {
+      "items": { "label": "Work items", "fields": {
+        "key": ["Key", "text"], "project": ["Project", "text"], "type": ["Type", "text"], "priority": ["Priority", "text"], "status": ["Status", "text"],
+        "assignee": ["Assignee", "text"], "created": ["Created", "date"], "points": ["Story points", "number"], "cycle_hours": ["Cycle time (hours)", "number"], "n_comments": ["Number of comments", "number"] } },
+      "timelogs": { "label": "Time entries", "fields": { "person": ["Person", "text"], "day": ["Day", "date"], "hours": ["Hours", "number"] },
+        "links": [ { "col": "item_id", "to": "items", "name": "Work item" } ] }
+    },
+    "functions": [["count", "Count of rows"], ["sum", "Sum of"], ["avg", "Average of"], ["min", "Lowest"], ["max", "Highest"], ["distinct", "Number of different"]],
+    "dateParts": [["month", "month"], ["weekday", "weekday"]]
+  },
+  "contracts": {
+    "overview": { "kpis": { "completed": 187, "completed_prev": 78, "open_now": 1041, "...": "one number per KPI id, plus <id>_prev for KPIs that are not snapshots" },
+                  "health": { "on_time_share": 0.751, "owned_share": 0.671, "estimated_share": 0.745, "ready_share": 0.04 } },
+    "category": { "kind": "category", "dim": "priority", "fmt": "int | dec | pct | hours", "max": "optional fixed axis maximum",
+                  "items": [ { "name": "high", "label": "High", "value": 157, "segs": [ { "name": "overdue", "label": "Overdue", "value": 40 } ] } ],
+                  "segDim": "colour family of the segments (optional)" },
+    "time": { "kind": "time", "grain": "day | week | month | quarter | year", "fmt": "int", "mixedUnits": "true when lines have different units",
+              "keys": ["2026-10-23", "2026-10-24"], "series": [ { "name": "completed", "label": "Completed", "values": [12, 30], "fmt": "optional", "color": "optional: critical" } ] },
+    "heat": { "kind": "heat", "fmt": "int", "rows": [ { "name": "Mon", "label": "Mon", "values": [0, 3, 9] } ], "cols": ["00", "01", "02"] },
+    "table": { "request": "page, size (10), sort, dir (asc|desc), search", "response": { "total": 54, "rows": [ { "project": "Atlas", "open": 142 } ] } },
+    "viewQuery": { "request": { "base": "timelogs", "fn": "sum", "field": "hours", "group": "item_id.project", "filters": [ { "field": "hours", "op": "le", "value": "12" } ] },
+                   "response": { "rows": 2512, "total": 4593.6, "groups": [ { "key": "Atlas", "value": 1854 }, { "key": "__other", "value": 120 } ] } }
+  },
+  "interactions": [
+    "Period buttons and the project list change every chart, table and number on the standard pages.",
+    "Cards: drag the ⠿ title onto another card to move it; ◀ ▶ do the same from the keyboard.",
+    "Cards: drag the bottom-right corner to change the width (2 to 6 of 6 columns).",
+    "Cards: the dropdown switches the chart type; the list depends on the data (see chartTypes and chartRules).",
+    "Cards: ✕ hides a card; 'Show hidden cards' and 'Reset layout' are above the board.",
+    "Multi-line cards show chips that turn lines on and off; the Trends card can 'Compare shapes' (each line as % of its own peak).",
+    "Hover any mark for a tooltip with exact values.",
+    "Tables page 10 rows at a time, sort by clicking a header and search by name.",
+    "Build a view: choose table, calculation, grouping, filters and chart; click a bar or a result row to see its records; Save view; Add to My dashboard.",
+    "Layouts, saved views and filters are remembered per browser."
+  ]
+}
+</script>
+
+<!-- ======================= 2. DESIGN TOKENS and components ======================= -->
+<style>
+/* ---- tokens: change these to re-theme ---- */
+:root {
+  --bg: #f3f7fd; --panel: #ffffff; --fg: #0f1b33; --fg-muted: #5b6b85; --line: #dbe5f3; --grid: #e8eef7; --axis: #b9c6da;
+  --side: linear-gradient(180deg, #e6f1ff 0%, #d3e5ff 100%); --side-line: #bcd6fb; --side-fg: #1d2352;
+  --band: linear-gradient(115deg, #1e3a8a 0%, #2563eb 100%);
+  --accent: #2563eb; --accent-dark: #1e3a8a; --muted-fill: #b8c4d6;
+  --ok: #15803d; --warn: #b45309; --bad: #dc2626;
+  /* chart series, in order: blue, teal, navy, sky, indigo, slate, light blue, red (problems only) */
+  --c0: #2563eb; --c1: #0d9488; --c2: #1e3a8a; --c3: #0ea5e9; --c4: #6366f1; --c5: #64748b; --c6: #93c5fd; --c7: #dc2626;
+  --radius: 10px; --gap: 16px; --shadow: 0 2px 12px rgba(29, 35, 82, .08);
+  --font: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; --serif: Georgia, "Times New Roman", serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1424; --panel: #141d31; --fg: #e8eefb; --fg-muted: #9aa8c2; --line: #26324b; --grid: #1f2a40; --axis: #3a4a68;
+    --side: linear-gradient(180deg, #16233f 0%, #1b2b4d 100%); --side-line: #2a3d63; --side-fg: #dbe7ff;
+    --muted-fill: #475569; --ok: #22c55e; --warn: #f59e0b; --bad: #f87171;
+    --c0: #3b82f6; --c1: #14b8a6; --c2: #60a5fa; --c3: #38bdf8; --c4: #818cf8; --c5: #94a3b8; --c6: #bfdbfe; --c7: #f87171;
+    --shadow: 0 2px 12px rgba(0, 0, 0, .35);
+    color-scheme: dark;
+  }
+}
+/* ---- base ---- */
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--fg); font: 14px/1.45 var(--font); }
+[hidden] { display: none !important; }
+h1, h2, h3, p { margin: 0; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* ---- layout regions ---- */
+.shell { display: grid; grid-template-columns: 15rem minmax(0, 1fr); min-height: 100vh; }
+.side { background: var(--side); border-right: 1px solid var(--side-line); color: var(--side-fg); }
+.side-inner { position: sticky; top: 0; display: grid; gap: 16px; padding: 18px 14px; max-height: 100vh; overflow: auto; }
+.brand { font-family: var(--serif); font-size: 26px; padding: 0 8px 12px; border-bottom: 1px solid var(--side-line); }
+.brand small { display: block; font: 12px var(--font); opacity: .7; }
+.nav { display: grid; gap: 2px; }
+.nav a { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; color: var(--side-fg); text-decoration: none; opacity: .85; }
+.nav a::before { content: ""; width: 9px; height: 9px; border-radius: 3px; background: var(--c6); flex: none; }
+.nav a:hover { background: rgba(37, 99, 235, .1); opacity: 1; }
+.nav a[aria-current="page"] { background: var(--accent); color: #fff; opacity: 1; font-weight: 600; box-shadow: 0 4px 12px rgba(37, 99, 235, .3); }
+.nav a[aria-current="page"]::before { background: #fff; }
+.nav .sep { height: 1px; background: var(--side-line); margin: 6px 4px; }
+.side-note { font-size: 12px; opacity: .75; padding: 0 8px; }
+.main { min-width: 0; padding: 18px 22px 40px; display: grid; gap: var(--gap); align-content: start; }
+.top { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: center; justify-content: space-between; padding: 14px 20px; border-radius: 14px; color: #fff; background: var(--band); box-shadow: 0 8px 20px rgba(37, 99, 235, .22); }
+.eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; opacity: .8; }
+.window { font-family: var(--serif); font-size: 20px; }
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.top select, .top .btn, .top input { background: #fff; color: #1d2352; border: 0; border-radius: 8px; padding: 6px 10px; }
+.sample-badge { font-size: 11px; font-weight: 600; background: #fde68a; color: #713f12; border-radius: 999px; padding: 2px 10px; }
+/* ---- controls ---- */
+.seg { display: inline-flex; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); background: var(--panel); }
+.seg button { border: 0; background: none; padding: 6px 12px; cursor: pointer; font-size: 13px; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; font-weight: 600; }
+.top .seg { border-color: rgba(255, 255, 255, .4); background: rgba(255, 255, 255, .12); }
+.top .seg button { color: #fff; }
+.top .seg button + button { border-left-color: rgba(255, 255, 255, .3); }
+.top .seg button[aria-pressed="true"] { background: #fff; color: #1e3a8a; }
+.seg.small button { padding: 3px 10px; font-size: 12px; }
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 13px; }
+.btn:hover { border-color: var(--accent); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.btn.danger { color: var(--bad); }
+.tool { border: 0; background: none; color: var(--fg-muted); cursor: pointer; padding: 2px 6px; border-radius: 6px; font-size: 12px; }
+.tool:hover { background: var(--grid); color: var(--fg); }
+.link { border: 0; background: none; padding: 0; color: var(--accent); cursor: pointer; text-align: left; }
+.link:hover { text-decoration: underline; }
+select, input[type="text"], input[type="search"], input[type="date"], input[type="number"] { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; max-width: 100%; }
+.note { color: var(--fg-muted); font-size: 12px; }
+.empty { color: var(--fg-muted); font-size: 13px; padding: 18px 0; }
+.toast { position: fixed; right: 20px; bottom: 20px; background: var(--accent-dark); color: #fff; padding: 10px 16px; border-radius: 10px; box-shadow: var(--shadow); z-index: 50; }
+.page-title { font-family: var(--serif); font-weight: 400; font-size: 26px; position: relative; padding-left: 16px; }
+.page-title::before { content: ""; position: absolute; left: 0; top: 14%; bottom: 14%; width: 6px; border-radius: 3px; background: var(--accent); }
+.page-area { display: grid; gap: var(--gap); }
+/* ---- KPI tile ---- */
+.kpis { display: grid; gap: 14px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.kpi { --k: var(--accent); display: grid; gap: 4px; align-content: start; padding: 14px 18px; border-radius: var(--radius); color: #fff; background: linear-gradient(135deg, var(--k) 0%, color-mix(in srgb, var(--k) 62%, #000) 100%); box-shadow: 0 8px 18px color-mix(in srgb, var(--k) 30%, transparent); }
+.kpi-label { font-size: 12px; font-weight: 600; opacity: .92; }
+.kpi-num { font-family: var(--serif); font-size: 32px; line-height: 1.1; }
+.kpi-chg { font-size: 12px; opacity: .9; }
+.kpi-chg b { padding: 0 6px; border-radius: 999px; background: rgba(255, 255, 255, .22); }
+.kpi-chg b.good::before { content: "▲ "; }
+.kpi-chg b.bad::before { content: "▼ "; }
+/* ---- board and card ---- */
+.board-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; }
+.board { display: grid; gap: var(--gap); grid-template-columns: repeat(6, minmax(0, 1fr)); align-items: start; }
+.card { position: relative; display: grid; gap: 10px; align-content: start; min-width: 0; padding: 16px 18px; background: var(--panel); border-radius: var(--radius); border-top: 4px solid var(--accent); box-shadow: var(--shadow); }
+.card-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.card-drag { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 8rem; cursor: grab; }
+.card-drag h2 { font-size: 15px; font-weight: 600; }
+.grip { color: var(--fg-muted); }
+.card-tools { display: flex; gap: 2px; align-items: center; }
+.card-tools select { padding: 3px 6px; font-size: 12px; }
+.card-extra { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.card-extra:empty { display: none; }
+.card-body { position: relative; min-height: 120px; min-width: 0; }
+.card.dragging { opacity: .45; }
+.card.over-before { box-shadow: -5px 0 0 var(--accent), var(--shadow); }
+.card.over-after { box-shadow: 5px 0 0 var(--accent), var(--shadow); }
+.card.resizing { outline: 2px dashed var(--accent); outline-offset: 2px; }
+.resize { position: absolute; right: 5px; bottom: 5px; width: 14px; height: 14px; cursor: ew-resize; touch-action: none; border-right: 2px solid var(--axis); border-bottom: 2px solid var(--axis); border-radius: 0 0 4px 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 12px; border-radius: 999px; border: 1px solid var(--k); background: transparent; cursor: pointer; font-size: 12px; }
+.chip::before { content: ""; width: 14px; height: 3px; border-radius: 2px; background: var(--k); }
+.chip[aria-pressed="true"] { background: var(--k); color: #fff; font-weight: 600; }
+.chip[aria-pressed="true"]::before { background: #fff; }
+/* ---- charts ---- */
+svg { display: block; overflow: visible; }
+.tick { fill: var(--fg-muted); font-size: 11px; }
+.gridline { stroke: var(--grid); stroke-width: 1; fill: none; }
+.baseline { stroke: var(--axis); stroke-width: 1; }
+.val { fill: var(--fg); font-size: 11px; }
+.cellbg { fill: var(--grid); }
+.center-num { font-family: var(--serif); fill: var(--fg); }
+.center-lab { fill: var(--fg-muted); font-size: 11px; }
+.tm-label { fill: #fff; font-size: 12px; font-weight: 600; pointer-events: none; }
+.tm-value { fill: rgba(255, 255, 255, .9); font-size: 11px; pointer-events: none; }
+.fn-val { fill: #fff; font-size: 11px; font-weight: 600; paint-order: stroke; stroke: rgba(0, 0, 0, .35); stroke-width: 2px; pointer-events: none; }
+.hit { fill: transparent; cursor: pointer; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--fg-muted); margin-bottom: 6px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.key.line { height: 3px; width: 14px; }
+.tip { position: fixed; z-index: 60; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 6px 10px; font-size: 12px; max-width: 280px; }
+.tip-title { color: var(--fg-muted); margin-bottom: 2px; }
+.tip-row { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.donut { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
+.donut svg { flex: none; }
+.dl { display: grid; gap: 4px; font-size: 12px; flex: 1 1 12rem; min-width: 0; }
+.dl-row { display: grid; grid-template-columns: 12px 1fr auto auto; gap: 8px; align-items: center; }
+.dl-row span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl-row i { font-style: normal; color: var(--fg-muted); min-width: 3em; text-align: right; }
+/* ---- health rings ---- */
+.health { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; justify-items: center; }
+.gauge { margin: 0; display: grid; justify-items: center; gap: 2px; }
+.gauge figcaption { font-size: 12px; font-weight: 600; color: var(--fg-muted); }
+.ring-bg { fill: var(--grid); }
+.ring-num { font-family: var(--serif); font-size: 22px; fill: var(--fg); }
+.ring-state { font-size: 11px; font-weight: 600; }
+/* ---- tables ---- */
+.scroll { overflow: auto; }
+.scroll.tall { max-height: 380px; }
+.table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+.table th, .table td { padding: 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+.table th:first-child, .table td:first-child { text-align: left; white-space: normal; min-width: 9rem; }
+.table th { position: sticky; top: 0; z-index: 1; background: color-mix(in srgb, var(--accent) 10%, var(--panel)); font-weight: 600; }
+.table td.hot { color: var(--bad); font-weight: 600; }
+.table td.cap { text-transform: capitalize; }
+.sort { border: 0; background: none; padding: 0; cursor: pointer; font-weight: 600; }
+.sort::after { content: " ↕"; opacity: .4; }
+th[aria-sort="ascending"] .sort::after { content: " ↑"; opacity: 1; }
+th[aria-sort="descending"] .sort::after { content: " ↓"; opacity: 1; }
+.pager { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.stack { display: grid; gap: 8px; }
+/* ---- build a view ---- */
+.steps { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); }
+.step { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 6%, var(--panel)); border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line)); }
+.step-num { width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; display: grid; place-items: center; font-size: 12px; font-weight: 600; }
+.step-body { grid-column: 1 / -1; display: grid; gap: 6px; }
+.step-body select { width: 100%; }
+.field { display: grid; gap: 2px; min-width: 0; }
+.field > span { font-size: 12px; color: var(--fg-muted); }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.gallery { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); }
+.tile { display: grid; gap: 6px; padding: 12px; border-radius: 10px; border: 1px solid var(--line); border-top: 3px solid var(--accent); }
+/* ---- blueprint ---- */
+.bp { display: grid; gap: var(--gap); }
+.bp pre { margin: 0; padding: 12px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 5%, var(--panel)); border: 1px solid var(--line); overflow: auto; font: 12px/1.5 ui-monospace, Consolas, monospace; max-height: 320px; }
+.bp ol, .bp ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.bp code { font: 12px ui-monospace, Consolas, monospace; background: var(--grid); padding: 1px 5px; border-radius: 4px; }
+.wire { display: grid; grid-template-columns: 9rem 1fr; gap: 8px; min-height: 260px; font-size: 12px; }
+.wire > div, .wire-main > div { border: 2px dashed var(--axis); border-radius: 8px; padding: 8px; color: var(--fg-muted); }
+.wire-side { background: var(--side); }
+.wire-main { display: grid; gap: 8px; grid-template-rows: auto auto 1fr; border: 0 !important; padding: 0 !important; }
+.wire-band { background: var(--band); color: #fff !important; border-style: solid !important; border-color: transparent !important; }
+.wire-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.wire-kpis span { border-radius: 6px; background: var(--accent); opacity: .7; color: #fff; padding: 6px; text-align: center; }
+.wire-board { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.wire-board span { border: 1px solid var(--line); border-top: 3px solid var(--accent); border-radius: 6px; background: var(--panel); padding: 10px 6px; text-align: center; }
+.swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+.swatch { display: grid; gap: 4px; justify-items: center; font-size: 11px; }
+.swatch span { width: 48px; height: 32px; border-radius: 6px; border: 1px solid var(--line); }
+.two { display: grid; gap: var(--gap); grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr)); }
+/* ---- responsive ---- */
+@media (max-width: 1100px) {
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .board > .card { grid-column: 1 / -1 !important; }
+  .resize { display: none; }
+}
+@media (max-width: 760px) {
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  .side-inner { position: static; max-height: none; }
+  .nav { display: flex; overflow-x: auto; }
+  .nav a { white-space: nowrap; }
+  .nav .sep, .side-note { display: none; }
+  .main { padding: 12px 16px 32px; }
+}
+</style>
+</head>
+<body>
+<!-- ======================= 3. LAYOUT REGIONS ======================= -->
+<div class="shell">
+  <aside class="side" data-region="sidebar">
+    <div class="side-inner">
+      <div class="brand" id="brand"></div>
+      <nav class="nav" id="nav" aria-label="Pages"></nav>
+      <p class="side-note" id="side-note"></p>
+    </div>
+  </aside>
+  <main class="main">
+    <header class="top" id="top" data-region="topbar">
+      <div>
+        <p class="eyebrow">Showing <span class="sample-badge">Sample data</span></p>
+        <p class="window" id="window-label"></p>
+      </div>
+      <div class="filters">
+        <div class="seg" id="range" role="group" aria-label="Period"></div>
+        <span id="custom-dates" hidden><input type="date" id="from" aria-label="From"> – <input type="date" id="to" aria-label="To"></span>
+        <select id="project" aria-label="Project"><option value="">All projects</option></select>
+        <button type="button" class="btn" id="reset">Reset</button>
+      </div>
+    </header>
+    <div id="page" data-region="page"></div>
+  </main>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+<div class="tip" id="tip" hidden></div>
+
+<script>
+(() => {
+  'use strict';
+  const SPEC = JSON.parse(document.getElementById('dashboard-spec').textContent);
+
+  // ==== 1. UTILITIES ====
+  const $ = (s, r = document) => r.querySelector(s);
+  function h(tag, attrs, ...kids) {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v == null || v === false) continue;
+      if (k === 'class') e.className = v;
+      else if (k === 'text') e.textContent = v;
+      else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+      else e.setAttribute(k, v === true ? '' : v);
+    }
+    for (const kid of kids.flat()) if (kid != null && kid !== false) e.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+    return e;
+  }
+  function S(tag, attrs, parent) {
+    const e = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const [k, v] of Object.entries(attrs || {})) if (v != null) e.setAttribute(k, v);
+    if (parent) parent.append(e);
+    return e;
+  }
+  const T = (parent, x, y, str, attrs) => { const t = S('text', { x, y, ...attrs }, parent); t.textContent = str; return t; };
+  const textW = (s) => String(s).length * 6.6; // approximate width at 11px; keeps the mockup free of layout reads
+  const FMT = {
+    int: (v) => (v == null ? '—' : Math.round(v).toLocaleString('en')),
+    dec: (v) => (v == null ? '—' : (Math.round(v * 10) / 10).toLocaleString('en')),
+    pct: (v) => (v == null ? '—' : Math.round(v * 100) + '%'),
+    hours: (v) => (v == null ? '—' : Math.round(v).toLocaleString('en') + ' h'),
+  };
+  const fmtOf = (k) => FMT[k] || ((v) => (v == null ? '—' : Number.isInteger(v) ? FMT.int(v) : FMT.dec(v)));
+  const chg = (v) => (v > 0 ? '+' : '') + Math.round(v * 100) + '%';
+  const pretty = (s) => String(s).replace(/[._]/g, ' ').replace(/^./, (c) => c.toUpperCase());
+  const PRETTY_DIMS = ['priority', 'type', 'role', 'action', 'area', 'overdue', 'done'];
+  const labelFor = (dim, n) => (PRETTY_DIMS.includes(dim) ? pretty(n) : n);
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const DAY = 864e5;
+  const iso = (t) => new Date(t).toISOString().slice(0, 10);
+  const fDate = (s) => new Date(s + 'T00:00:00Z').toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+  const fShort = (s) => new Date(s + 'T00:00:00Z').toLocaleDateString('en', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  // Colours: blue family; red only for problems. Fixed colour per known value so a value keeps its colour everywhere.
+  const C = (i) => `var(--c${((i % 8) + 8) % 8})`;
+  const FIXED = {
+    status: { 'To Do': 0, 'In Progress': 3, 'In Review': 6, Blocked: 7, Done: 2 },
+    priority: { critical: 7, high: 2, medium: 0, low: 6 },
+    type: { task: 0, user_story: 1, bug: 7, epic: 4 },
+    column: { Backlog: 0, 'In Progress': 3, 'In Review': 6, Done: 2 },
+    sprint_status: { Future: 0, Active: 3, 'Active, past end date': 7, Closed: 2 },
+  };
+  const SEMANTIC = { overdue: { overdue: 'var(--bad)', on_time: C(0) }, done: { done: C(2), not_done: 'var(--muted-fill)' } };
+  function colorFor(dim, name, i) {
+    if (name === '__other' || name === 'Other') return 'var(--muted-fill)';
+    if (SEMANTIC[dim] && SEMANTIC[dim][name]) return SEMANTIC[dim][name];
+    if (FIXED[dim] && FIXED[dim][name] !== undefined) return C(FIXED[dim][name]);
+    return C(i);
+  }
+  // Per-browser memory (layouts, saved views, filters). In a real app: GET/PUT /api/state.
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem('dashboard-mockup:' + k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem('dashboard-mockup:' + k, JSON.stringify(v)); } catch (e) { /* storage blocked: this visit only */ } },
+  };
+  function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => { t.hidden = true; }, 3000); }
+  function select(options, value, onChange, opts = {}) {
+    const s = h('select', { 'aria-label': opts.label || null });
+    if (opts.blank !== undefined) s.append(new Option(opts.blank, ''));
+    for (const o of options) {
+      if (o.group) { const g = h('optgroup', { label: o.group }); for (const [v, t] of o.items) g.append(new Option(t, v)); s.append(g); }
+      else { const op = new Option(o[1], o[0]); if (opts.disabled && opts.disabled(o[0])) op.disabled = true; s.append(op); }
+    }
+    s.value = value == null ? '' : String(value);
+    s.addEventListener('change', () => onChange(s.value));
+    return s;
+  }
+
+  // ==== 2. SAMPLE DATA — replace these four functions with API calls returning the shapes in SPEC.contracts ====
+  function rng(seed) {
+    let a = 2166136261;
+    for (let i = 0; i < seed.length; i++) a = Math.imul(a ^ seed.charCodeAt(i), 16777619);
+    return () => { a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  }
+  function windowOf(f) {
+    if (f.range === 'custom' && f.from && f.to) return f.from <= f.to ? { from: f.from, to: f.to } : { from: f.to, to: f.from };
+    const opt = SPEC.filters.range.options.find((o) => o.id === f.range) || SPEC.filters.range.options[0];
+    const to = Date.parse(SPEC.app.asOf);
+    return { from: iso(to - ((opt.days || 7) - 1) * DAY), to: SPEC.app.asOf };
+  }
+  function bucketsOf(w) {
+    const days = (Date.parse(w.to) - Date.parse(w.from)) / DAY + 1;
+    const step = days <= 31 ? 1 : days <= 120 ? 7 : 30;
+    const keys = [];
+    for (let t = Date.parse(w.from); t <= Date.parse(w.to); t += step * DAY) keys.push(iso(t));
+    return { keys, grain: step === 1 ? 'day' : step === 7 ? 'week' : 'month', step };
+  }
+  const cardById = (id) => SPEC.pages.flatMap((p) => p.cards || []).find((c) => c.id === id);
+  const SAMPLE = {
+    overview(f) {
+      const R = rng('kpi' + JSON.stringify(f));
+      const w = windowOf(f), days = (Date.parse(w.to) - Date.parse(w.from)) / DAY + 1, scale = days / 7, proj = f.project ? 0.2 : 1;
+      const kpis = {};
+      for (const k of SPEC.kpis) {
+        const base = k.base * proj * (k.snapshot || k.format === 'dec' ? 1 : scale);
+        kpis[k.id] = k.format === 'dec' ? Math.round(base * (0.8 + 0.4 * R()) * 10) / 10 : Math.round(base * (0.85 + 0.3 * R()));
+        if (!k.snapshot) kpis[k.id + '_prev'] = k.format === 'dec' ? Math.round(base * (0.7 + 0.6 * R()) * 10) / 10 : Math.round(base * (0.6 + 0.6 * R()));
+      }
+      const health = {};
+      for (const g of SPEC.health) health[g.id] = clamp(g.sample + (f.project ? (R() - 0.5) * 0.3 : 0), 0, 1);
+      return { kpis, health };
+    },
+    widget(card, f) {
+      const spec = card.sample || (card.sampleFrom && cardById(card.sampleFrom).sample) || {};
+      const R = rng(card.id + JSON.stringify(f));
+      const w = windowOf(f), days = (Date.parse(w.to) - Date.parse(w.from)) / DAY + 1;
+      const scale = spec.snapshot ? 1 : days / 7, proj = f.project ? 0.25 : 1;
+      if (card.kind === 'heat') {
+        const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+        return { kind: 'heat', fmt: 'int', cols: [...Array(24).keys()].map((x) => String(x).padStart(2, '0')),
+          rows: names.map((n, d) => ({ name: n, label: n, values: [...Array(24).keys()].map((hr) => (hr >= 9 && hr <= 19 && d < 5 ? Math.round((10 + 60 * R()) * scale * proj) : Math.round(4 * R() * scale * proj))) })) };
+      }
+      if (card.kind === 'time') {
+        const { keys, grain, step } = bucketsOf(w);
+        return { kind: 'time', grain, fmt: spec.fmt || 'int', dim: spec.dim, mixedUnits: spec.mixedUnits, keys,
+          series: spec.series.map((s, i) => {
+            let run = s.base * 2;
+            return { name: s.name, label: s.label || s.name, fmt: s.fmt, color: s.color,
+              values: keys.map((k, j) => {
+                if (spec.cumulative) { run += s.base * (0.2 + 0.4 * R()) * proj; return Math.round(run * proj); }
+                if (s.flat) return Math.round(s.base * proj * (0.92 + 0.0015 * j + 0.04 * R()));
+                const weekday = new Date(k).getUTCDay();
+                const lull = step === 1 && (weekday === 0 || weekday === 6) ? 0.25 : 1;
+                const v = s.base * step * proj * lull * (0.55 + 0.9 * R());
+                return s.fmt === 'dec' ? Math.round(v / step * 10) / 10 : Math.round(v);
+              }) };
+          }) };
+      }
+      // category
+      const n = spec.names.length;
+      return { kind: 'category', dim: spec.dim, fmt: spec.fmt || 'int', max: spec.max, segDim: spec.segDim,
+        items: spec.names.map((name, i) => {
+          if (spec.pct) return { name, label: name, value: Math.round((0.02 + 0.1 * R()) * 1000) / 1000 };
+          const weight = spec.weights ? spec.weights[i] : n - i;
+          const value = Math.max(1, Math.round(weight * (spec.unit || 10) * scale * proj * (0.75 + 0.5 * R())));
+          let segs;
+          if (spec.segs) {
+            const parts = spec.segs.map(() => 0.2 + R());
+            const sum = parts.reduce((a, b) => a + b, 0);
+            let left = value;
+            segs = spec.segs.map(([key, label], k) => { const v = k === spec.segs.length - 1 ? left : Math.round((value * parts[k]) / sum); left -= v; return { name: key, label, value: Math.max(0, v) }; });
+          }
+          return { name, label: name, value, segs };
+        }).sort((a, b) => (spec.weights || spec.pct ? 0 : b.value - a.value)) };
+    },
+    table(kind, f) {
+      const R = rng(kind + JSON.stringify(f));
+      if (kind === 'projects') {
+        return SPEC.filters.project.options.concat(['Garnet', 'Harbor', 'Iris', 'Juniper', 'Kestrel', 'Lumen', 'Maple', 'Nova']).filter((p) => !f.project || p === f.project).map((p) => {
+          const open = Math.round(10 + 140 * R());
+          return { project: p, type: R() > 0.5 ? 'scrum' : 'kanban', open, overdue: Math.round(open * 0.25 * R()), blocked: Math.round(4 * R()) * (R() > 0.6 ? 1 : 0),
+            created: Math.round(5 + 60 * R()), completed: Math.round(5 + 60 * R()), done_share: Math.round((0.3 + 0.6 * R()) * 100) / 100, hours: Math.round(20 + 400 * R()) };
+        });
+      }
+      return [...Array(23).keys()].map((i) => {
+        const p = SPEC.filters.project.options[i % 6];
+        const items = Math.round(2 + 20 * R()), done = Math.round(items * R());
+        const start = iso(Date.parse('2026-07-20') + i * 4 * DAY);
+        return { sprint: `${p.slice(0, 3).toUpperCase()} · Sprint ${1 + Math.floor(i / 6)}`, project: p, status: ['future', 'active', 'closed'][i % 3], start, end: iso(Date.parse(start) + 13 * DAY), items, items_done: done, points: items * 2, points_done: done * 2 };
+      }).filter((r) => !f.project || r.project === f.project);
+    },
+    // Build a view sample tables (rows with fields from SPEC.model)
+    model: (() => {
+      const R = rng('model');
+      const pick = (a) => a[Math.floor(R() * a.length)];
+      const people = ['Asha R', 'Ben K', 'Chitra M', 'Dev P', 'Esha N', 'Farhan S', 'Gita L'];
+      const items = [...Array(240).keys()].map((i) => ({
+        id: i + 1, key: 'ATL-' + (i + 1), project: pick(SPEC.filters.project.options), type: pick(['task', 'task', 'user_story', 'bug', 'epic']),
+        priority: pick(['medium', 'medium', 'high', 'low', 'critical']), status: pick(['Done', 'Done', 'To Do', 'In Progress', 'In Review', 'Blocked']),
+        assignee: pick(people), created: iso(Date.parse('2026-07-22') + Math.floor(R() * 99) * DAY), points: pick([1, 2, 3, 5, 8, null]),
+        cycle_hours: Math.round(R() * R() * 200 * 10) / 10, n_comments: Math.floor(R() * R() * 8),
+      }));
+      const timelogs = [...Array(600).keys()].map(() => ({ item_id: 1 + Math.floor(R() * 240), person: pick(people), day: iso(Date.parse('2026-07-27') + Math.floor(R() * 94) * DAY), hours: Math.round((0.25 + R() * 7) * 4) / 4 }));
+      return { items, timelogs };
+    })(),
+  };
+
+  // ==== 3. CHARTS — plain SVG; each draws into a box, sizes from its width, and shows a tooltip on hover ====
+  const tip = {
+    show(ev, title, rows, fmt) {
+      const t = $('#tip');
+      t.replaceChildren(h('div', { class: 'tip-title', text: title }), ...rows.map((r) => h('div', { class: 'tip-row' },
+        r.color ? h('span', { class: 'key line', style: `background:${r.color}` }) : null, h('b', { text: r.value == null ? '—' : (r.fmt || fmt)(r.value) }), h('span', { text: r.label || '' }))));
+      t.hidden = false;
+      const x = ev.clientX + 14 + t.offsetWidth > window.innerWidth ? ev.clientX - t.offsetWidth - 14 : ev.clientX + 14;
+      t.style.left = Math.max(4, x) + 'px';
+      t.style.top = Math.min(window.innerHeight - t.offsetHeight - 4, ev.clientY + 14) + 'px';
+    },
+    hide() { $('#tip').hidden = true; },
+  };
+  const hover = (el, fn) => { el.addEventListener('pointermove', fn); el.addEventListener('pointerleave', tip.hide); };
+  const widthOf = (box) => Math.max(280, box.clientWidth || 600);
+  const empty = (box, msg = 'Nothing to show for this period.') => box.replaceChildren(h('p', { class: 'empty', text: msg }));
+  function legend(box, items, line) {
+    box.append(h('div', { class: 'legend' }, items.map((s) => h('span', null, h('span', { class: 'key' + (line ? ' line' : ''), style: `background:${s.color}` }), s.label))));
+  }
+  function niceMax(v) { if (v <= 0) return 1; const p = Math.pow(10, Math.floor(Math.log10(v))); for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p; return 10 * p; }
+  const compact = (v) => (v >= 10000 ? Math.round(v / 1000) + 'k' : FMT.int(v));
+  function arcPath(r0, r1, a0, a1) {
+    const p = (r, a) => [r * Math.sin(a), -r * Math.cos(a)];
+    const big = a1 - a0 > Math.PI ? 1 : 0;
+    const [x0, y0] = p(r1, a0), [x1, y1] = p(r1, a1);
+    if (r0 <= 0) return `M0,0L${x0},${y0}A${r1},${r1} 0 ${big} 1 ${x1},${y1}Z`;
+    const [x2, y2] = p(r0, a1), [x3, y3] = p(r0, a0);
+    return `M${x0},${y0}A${r1},${r1} 0 ${big} 1 ${x1},${y1}L${x2},${y2}A${r0},${r0} 0 ${big} 0 ${x3},${y3}Z`;
+  }
+
+  // time chart: line, step, dots, stacked area, columns (plain, stacked or grouped)
+  function xyChart(box, o) {
+    box.replaceChildren();
+    const n = o.keys.length;
+    if (!n || !o.series.length) return empty(box);
+    if (o.series.length > 1 && !o.noLegend) legend(box, o.series, o.mode === 'line');
+    const W = widthOf(box), H = o.height || 240, mt = 8, mb = 22, mr = 10;
+    const stacked = o.mode === 'area' || o.mode === 'stack' || (o.mode === 'column' && o.series.length > 1);
+    let max = 0;
+    for (let i = 0; i < n; i++) {
+      if (stacked) max = Math.max(max, o.series.reduce((s, x) => s + (x.values[i] || 0), 0));
+      else for (const s of o.series) max = Math.max(max, s.values[i] || 0);
+    }
+    max = niceMax(max);
+    const ticks = [0, 0.25, 0.5, 0.75, 1].map((t) => t * max);
+    const ml = Math.max(...ticks.map((t) => textW((o.axis || compact)(t)))) + 12;
+    const y = (v) => H - mb - (v / max) * (H - mb - mt);
+    const flat = o.mode === 'line' || o.mode === 'area';
+    const step = (W - ml - mr) / (flat ? Math.max(1, n - 1) : n);
+    const cx = (i) => (flat ? ml + i * step : ml + i * step + step / 2);
+    const svg = S('svg', { viewBox: `0 0 ${W} ${H}`, width: '100%', role: 'img' }, box);
+    for (const t of ticks) { if (t > 0) S('line', { class: 'gridline', x1: ml, x2: W - mr, y1: y(t), y2: y(t) }, svg); T(svg, ml - 8, y(t), (o.axis || compact)(t), { class: 'tick', 'text-anchor': 'end', dy: '0.32em' }); }
+    const lab = o.tick || String;
+    const every = Math.max(1, Math.ceil((Math.max(...o.keys.map((k) => textW(lab(k)))) + 10) / step));
+    for (let i = 0; i < n; i += every) T(svg, cx(i), H - 5, lab(o.keys[i]), { class: 'tick', 'text-anchor': i === 0 && flat ? 'start' : 'middle' });
+    if (o.mode === 'line') {
+      for (const s of o.series) {
+        let d = '', on = false;
+        s.values.forEach((v, i) => {
+          if (v == null) { on = false; return; }
+          if (!on) d += `M${cx(i)},${y(v)}`;
+          else d += o.step ? `H${cx(i)}V${y(v)}` : `L${cx(i)},${y(v)}`;
+          on = true;
+        });
+        if (!o.dots) S('path', { d, fill: 'none', stroke: s.color, 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, svg);
+        if (o.dots || n === 1) s.values.forEach((v, i) => { if (v != null) S('circle', { cx: cx(i), cy: y(v), r: 4, fill: s.color }, svg); });
+      }
+    } else if (stacked) {
+      const base = Array(n).fill(0);
+      o.series.forEach((s, k) => {
+        const lo = base.slice(), hi = base.map((b, i) => b + (s.values[i] || 0));
+        if (o.mode === 'area') {
+          const top = hi.map((v, i) => `${i ? 'L' : 'M'}${cx(i)},${y(v)}`).join('');
+          const bottom = lo.map((v, i) => `L${cx(i)},${y(v)}`).reverse().join('');
+          S('path', { d: top + bottom + 'Z', fill: s.color, 'fill-opacity': 0.88 }, svg);
+        } else {
+          hi.forEach((v, i) => { if (v > lo[i]) S('rect', { x: cx(i) - step * 0.39, width: step * 0.78, y: y(v), height: Math.max(0, y(lo[i]) - y(v) - (k ? 1 : 0)), rx: 2, fill: s.color }, svg); });
+        }
+        hi.forEach((v, i) => { base[i] = v; });
+      });
+    } else {
+      const bw = (step * 0.78) / o.series.length;
+      o.series.forEach((s, k) => s.values.forEach((v, i) => { if (v) S('rect', { x: cx(i) - step * 0.39 + k * bw, width: Math.max(1, bw - 1), y: y(v), height: y(0) - y(v), rx: 2, fill: s.color }, svg); }));
+    }
+    S('line', { class: 'baseline', x1: ml, x2: W - mr, y1: y(0), y2: y(0) }, svg);
+    const title = o.title || lab;
+    for (let i = 0; i < n; i++) {
+      const r = S('rect', { class: 'hit', x: cx(i) - step / 2, width: step, y: mt, height: H - mb - mt }, svg);
+      hover(r, (ev) => tip.show(ev, title(o.keys[i]), o.series.map((s) => ({ label: s.label, color: s.color, value: s.tip ? s.tip[i] : s.values[i], fmt: s.fmt })), o.fmt || FMT.int));
+      if (o.onPick) r.addEventListener('click', () => o.onPick(i));
+    }
+  }
+
+  // horizontal bars, optionally stacked from segments
+  function barChart(box, items, fmt, opts = {}) {
+    box.replaceChildren();
+    if (!items.length) return empty(box);
+    if (items[0].segs) legend(box, items[0].segs.map((s) => ({ label: s.label, color: s.color })));
+    const W = widthOf(box), rowH = 26, H = items.length * rowH;
+    const lw = Math.min(W * 0.38, Math.max(...items.map((d) => textW(d.label))) + 10);
+    const vw = Math.max(...items.map((d) => textW(fmt(d.value)))) + 14;
+    const max = opts.max || Math.max(...items.map((d) => d.value)) || 1;
+    const x = (v) => lw + (v / max) * (W - lw - vw);
+    const svg = S('svg', { viewBox: `0 0 ${W} ${H}`, width: '100%', role: 'img' }, box);
+    items.forEach((d, i) => {
+      const yy = i * rowH + 5;
+      T(svg, lw - 8, yy + 8, d.label.length > 32 ? d.label.slice(0, 31) + '…' : d.label, { class: 'tick', 'text-anchor': 'end', dy: '0.32em' });
+      let acc = 0;
+      for (const s of d.segs || [{ value: d.value, color: d.color }]) {
+        if (!s.value) continue;
+        S('rect', { x: x(acc), y: yy, width: Math.max(1, x(acc + s.value) - x(acc) - 1), height: 16, rx: 2, fill: s.color }, svg);
+        acc += s.value;
+      }
+      T(svg, x(d.value) + 6, yy + 8, fmt(d.value), { class: 'val', dy: '0.32em' });
+      const r = S('rect', { class: 'hit', x: 0, y: i * rowH, width: W, height: rowH }, svg);
+      hover(r, (ev) => tip.show(ev, d.label, d.segs ? d.segs.map((s) => ({ label: s.label, color: s.color, value: s.value })).concat([{ label: 'Total', value: d.value }]) : [{ value: d.value }], fmt));
+      if (opts.onPick) r.addEventListener('click', () => opts.onPick(d));
+    });
+  }
+  function valueList(parent, items, fmt) {
+    const total = items.reduce((s, d) => s + d.value, 0) || 1;
+    parent.append(h('div', { class: 'dl' }, items.map((d) => h('div', { class: 'dl-row' }, h('span', { class: 'key', style: `background:${d.color}` }), h('span', { text: d.label }), h('b', { text: fmt(d.value) }), h('i', { text: Math.round((d.value / total) * 100) + '%' })))));
+  }
+  function donutChart(box, items, fmt, pie, onPick) {
+    box.replaceChildren();
+    items = items.filter((d) => d.value > 0);
+    if (!items.length) return empty(box);
+    const total = items.reduce((s, d) => s + d.value, 0);
+    const size = Math.min(210, Math.max(150, widthOf(box) * 0.42)), r = size / 2 - 4;
+    const wrap = h('div', { class: 'donut' });
+    box.append(wrap);
+    const svg = S('svg', { viewBox: `${-size / 2} ${-size / 2} ${size} ${size}`, width: size, height: size, role: 'img' }, wrap);
+    let a = 0;
+    for (const d of items) {
+      const a1 = a + (d.value / total) * 2 * Math.PI;
+      const p = S('path', { d: arcPath(pie ? 0 : r * 0.6, r, a, Math.min(a1, a + 2 * Math.PI - 0.0001)), fill: d.color, stroke: 'var(--panel)', 'stroke-width': 1.5, style: 'cursor:pointer' }, svg);
+      hover(p, (ev) => tip.show(ev, d.label, [{ value: d.value, label: Math.round((d.value / total) * 100) + '% of total' }], fmt));
+      if (onPick) p.addEventListener('click', () => onPick(d));
+      a = a1;
+    }
+    if (!pie) { T(svg, 0, 0, compact(total), { class: 'center-num', 'text-anchor': 'middle', 'font-size': Math.round(size / 8) }); T(svg, 0, 18, 'total', { class: 'center-lab', 'text-anchor': 'middle' }); }
+    valueList(wrap, items, fmt);
+  }
+  function lollipopChart(box, items, fmt) {
+    box.replaceChildren();
+    if (!items.length) return empty(box);
+    const W = widthOf(box), rowH = 28, H = items.length * rowH;
+    const lw = Math.min(W * 0.38, Math.max(...items.map((d) => textW(d.label))) + 10);
+    const max = Math.max(...items.map((d) => d.value)) || 1, x = (v) => lw + (v / max) * (W - lw - 60);
+    const svg = S('svg', { viewBox: `0 0 ${W} ${H}`, width: '100%' }, box);
+    items.forEach((d, i) => {
+      const y = i * rowH + rowH / 2;
+      T(svg, lw - 8, y, d.label, { class: 'tick', 'text-anchor': 'end', dy: '0.32em' });
+      S('line', { x1: lw, x2: x(d.value), y1: y, y2: y, stroke: d.color, 'stroke-width': 2.5, 'stroke-linecap': 'round' }, svg);
+      S('circle', { cx: x(d.value), cy: y, r: 6, fill: d.color }, svg);
+      T(svg, x(d.value) + 12, y, fmt(d.value), { class: 'val', dy: '0.32em' });
+      hover(S('rect', { class: 'hit', x: 0, y: i * rowH, width: W, height: rowH }, svg), (ev) => tip.show(ev, d.label, [{ value: d.value }], fmt));
+    });
+  }
+  function treemapChart(box, items, fmt) {
+    box.replaceChildren();
+    items = items.filter((d) => d.value > 0).sort((a, b) => b.value - a.value);
+    if (!items.length) return empty(box);
+    const W = widthOf(box), H = 280;
+    const svg = S('svg', { viewBox: `0 0 ${W} ${H}`, width: '100%' }, box);
+    // split the list in two halves of about equal value, along the longer side, until one item is left
+    const lay = (list, x, y, w, hh) => {
+      if (list.length === 1) {
+        const d = list[0];
+        const g = S('g', { transform: `translate(${x},${y})` }, svg);
+        hover(S('rect', { width: Math.max(0, w - 3), height: Math.max(0, hh - 3), rx: 4, fill: d.color, style: 'cursor:pointer' }, g), (ev) => tip.show(ev, d.label, [{ value: d.value }], fmt));
+        if (w > 60 && hh > 36) { T(g, 8, 18, d.label.length > w / 7 ? d.label.slice(0, Math.floor(w / 7)) + '…' : d.label, { class: 'tm-label' }); T(g, 8, 34, fmt(d.value), { class: 'tm-value' }); }
+        return;
+      }
+      const total = list.reduce((s, d) => s + d.value, 0);
+      let acc = 0, cut = 0;
+      while (cut < list.length - 1 && acc + list[cut].value < total / 2) acc += list[cut++].value;
+      if (cut === 0) { acc = list[0].value; cut = 1; }
+      const share = acc / total;
+      if (w >= hh) { lay(list.slice(0, cut), x, y, w * share, hh); lay(list.slice(cut), x + w * share, y, w * (1 - share), hh); }
+      else { lay(list.slice(0, cut), x, y, w, hh * share); lay(list.slice(cut), x, y + hh * share, w, hh * (1 - share)); }
+    };
+    lay(items, 0, 0, W, H);
+  }
+  function waffleChart(box, items, fmt) {
+    box.replaceChildren();
+    items = items.filter((d) => d.value > 0);
+    if (!items.length) return empty(box);
+    const total = items.reduce((s, d) => s + d.value, 0);
+    const raw = items.map((d) => (d.value / total) * 100), cells = raw.map(Math.floor);
+    let left = 100 - cells.reduce((a, b) => a + b, 0);
+    raw.map((v, i) => [v - Math.floor(v), i]).sort((a, b) => b[0] - a[0]).forEach(([, i]) => { if (left > 0) { cells[i]++; left--; } });
+    const wrap = h('div', { class: 'donut' });
+    box.append(wrap);
+    const s = 16, g = 3, size = 10 * (s + g);
+    const svg = S('svg', { viewBox: `0 0 ${size} ${size}`, width: size, height: size }, wrap);
+    let k = 0;
+    cells.forEach((c, i) => { for (let j = 0; j < c; j++, k++) hover(S('rect', { x: (k % 10) * (s + g), y: Math.floor(k / 10) * (s + g), width: s, height: s, rx: 3, fill: items[i].color }, svg), (ev) => tip.show(ev, items[i].label, [{ value: items[i].value }], fmt)); });
+    valueList(wrap, items, fmt);
+  }
+  function radarChart(box, items, fmt) {
+    if (items.length < 3) return barChart(box, items, fmt);
+    box.replaceChildren();
+    const W = widthOf(box), H = 300, R = Math.min(W / 2 - 90, H / 2 - 28), n = items.length;
+    const svg = S('svg', { viewBox: `0 0 ${W} ${H}`, width: '100%' }, box);
+    const g = S('g', { transform: `translate(${W / 2},${H / 2})` }, svg);
+    const ang = (i) => (i / n) * 2 * Math.PI - Math.PI / 2;
+    const max = Math.max(...items.map((d) => d.value)) || 1;
+    for (const l of [0.25, 0.5, 0.75, 1]) S('polygon', { class: 'gridline', points: items.map((d, i) => `${Math.cos(ang(i)) * R * l},${Math.sin(ang(i)) * R * l}`).join(' ') }, g);
+    items.forEach((d, i) => { const lx = Math.cos(ang(i)) * (R + 12), ly = Math.sin(ang(i)) * (R + 12); T(g, lx, ly, d.label.slice(0, 16), { class: 'tick', dy: '0.32em', 'text-anchor': Math.abs(lx) < 4 ? 'middle' : lx > 0 ? 'start' : 'end' }); });
+    const pts = items.map((d, i) => [Math.cos(ang(i)) * R * (d.value / max), Math.sin(ang(i)) * R * (d.value / max)]);
+    S('polygon', { points: pts.map((p) => p.join(',')).join(' '), fill: C(0), 'fill-opacity': 0.22, stroke: C(0), 'stroke-width': 2 }, g);
+    items.forEach((d, i) => hover(S('circle', { cx: pts[i][0], cy: pts[i][1], r: 5, fill: C(0) }, g), (ev) => tip.show(ev, d.label, [{ value: d.value }], fmt)));
+  }
+  function funnelChart(box, items, fmt) {
+    box.replaceChildren();
+    items = items.slice().sort((a, b) => b.value - a.value);
+    if (!items.length) return empty(box);
+    const W = widthOf(box), rowH = 30, H = items.length * rowH;
+    const lw = Math.min(W * 0.34, Math.max(...items.map((d) => textW(d.label))) + 10), area = W - lw - 8, mid = lw + area / 2;
+    const svg = S('svg', { viewBox: `0 0 ${W} ${H}`, width: '100%' }, box);
+    items.forEach((d, i) => {
+      const w = Math.max(2, (d.value / items[0].value) * area);
+      T(svg, lw - 8, i * rowH + rowH / 2, d.label, { class: 'tick', 'text-anchor': 'end', dy: '0.32em' });
+      hover(S('rect', { x: mid - w / 2, y: i * rowH + 3, width: w, height: rowH - 6, rx: 4, fill: d.color }, svg), (ev) => tip.show(ev, d.label, [{ value: d.value }], fmt));
+      T(svg, mid, i * rowH + rowH / 2, fmt(d.value), { class: 'fn-val', 'text-anchor': 'middle', dy: '0.32em' });
+    });
+  }
+  function heatmap(box, o) {
+    box.replaceChildren();
+    if (!o.rows.length) return empty(box);
+    const W = widthOf(box), cellH = 22, top = 18, H = o.rows.length * (cellH + 2) + top;
+    const ml = Math.max(...o.rows.map((r) => textW(r.label))) + 12, cw = (W - ml - 4) / o.cols.length;
+    const svg = S('svg', { viewBox: `0 0 ${W} ${H}`, width: '100%' }, box);
+    const every = Math.max(1, Math.ceil(28 / cw));
+    o.cols.forEach((c, j) => { if (j % every === 0) T(svg, ml + j * cw + cw / 2, 11, (o.colLabel || String)(c), { class: 'tick', 'text-anchor': 'middle' }); });
+    const all = Math.max(...o.rows.flatMap((r) => r.values)) || 1;
+    o.rows.forEach((r, i) => {
+      const yy = top + i * (cellH + 2), max = o.rowScale ? Math.max(...r.values) || 1 : all;
+      T(svg, ml - 8, yy + cellH / 2, r.label, { class: 'tick', 'text-anchor': 'end', dy: '0.32em' });
+      r.values.forEach((v, j) => {
+        S('rect', { class: 'cellbg', x: ml + j * cw, y: yy, width: Math.max(1, cw - 2), height: cellH, rx: 2 }, svg);
+        hover(S('rect', { x: ml + j * cw, y: yy, width: Math.max(1, cw - 2), height: cellH, rx: 2, fill: C(0), 'fill-opacity': v ? 0.12 + 0.88 * (v / max) : 0 }, svg),
+          (ev) => tip.show(ev, r.label + ' · ' + (o.colTitle || String)(o.cols[j]), [{ value: v || 0 }], r.fmt || o.fmt));
+      });
+    });
+  }
+  function tableOf(box, head, rows, onPick) {
+    box.replaceChildren();
+    if (!rows.length) return empty(box);
+    box.append(h('div', { class: 'scroll tall' }, h('table', { class: 'table' },
+      h('thead', null, h('tr', null, head.map((x) => h('th', { text: x })))),
+      h('tbody', null, rows.map((r, i) => h('tr', null, h('td', null, onPick ? h('button', { class: 'link', type: 'button', text: r[0], onclick: () => onPick(i) }) : r[0]), r.slice(1).map((c) => h('td', { text: c }))))))));
+  }
+
+  // ==== 4. RENDER — draws any payload (SPEC.contracts) in the chart type the person picked ====
+  function render(box, data, view, opts = {}) {
+    const fmt = fmtOf(data.fmt);
+    if (data.kind === 'category') {
+      const items = data.items.map((d, i) => ({ ...d, label: labelFor(data.dim, d.label), color: colorFor(data.dim, d.name, i),
+        segs: d.segs && d.segs.map((s, k) => ({ ...s, color: colorFor(data.segDim, s.name, k) })) }));
+      if (!items.length) return empty(box);
+      switch (view) {
+        case 'column': return xyChart(box, { keys: items.map((d, i) => i), mode: items[0].segs ? 'stack' : 'column', tick: (i) => items[i].label.slice(0, 12), title: (i) => items[i].label, fmt,
+          series: items[0].segs ? items[0].segs.map((s, k) => ({ label: s.label, color: s.color, values: items.map((d) => d.segs[k].value) })) : [{ label: 'Value', color: items[0].color, values: items.map((d) => d.value) }], height: 260, onPick: opts.onPick && ((i) => opts.onPick(items[i])) });
+        case 'lollipop': return lollipopChart(box, items, fmt);
+        case 'donut': case 'pie': return donutChart(box, items, fmt, view === 'pie', opts.onPick);
+        case 'treemap': return treemapChart(box, items, fmt);
+        case 'waffle': return waffleChart(box, items, fmt);
+        case 'radar': return radarChart(box, items, fmt);
+        case 'funnel': return funnelChart(box, items, fmt);
+        case 'table': return tableOf(box, ['Name', ...(items[0].segs ? items[0].segs.map((s) => s.label) : []), items[0].segs ? 'Total' : 'Value'],
+          items.map((d) => [d.label, ...(d.segs || []).map((s) => fmt(s.value)), fmt(d.value)]), opts.onPick && ((i) => opts.onPick(items[i])));
+        default: return barChart(box, items, fmt, { max: data.max, onPick: opts.onPick });
+      }
+    }
+    if (data.kind === 'time') {
+      const off = new Set(opts.off || []);
+      const series = data.series.map((s, i) => ({ ...s, i })).filter((s) => !off.has(s.name)).map((s) => {
+        const color = s.color === 'critical' ? 'var(--bad)' : colorFor(data.dim, s.name, s.i);
+        const out = { ...s, label: labelFor(data.dim, s.label), color, fmt: fmtOf(s.fmt || data.fmt) };
+        if (opts.shapes) { const peak = Math.max(...s.values) || 1; out.tip = s.values; out.values = s.values.map((v) => (v / peak) * 100); }
+        return out;
+      });
+      if (!series.length) return empty(box, 'Turn on at least one line.');
+      const tick = (k) => fShort(k), title = (k) => (data.grain === 'week' ? 'Week of ' : '') + fDate(k);
+      if (view === 'heat') return heatmap(box, { rows: series.map((s) => ({ name: s.name, label: s.label, values: s.tip || s.values, fmt: s.fmt })), cols: data.keys, colLabel: tick, colTitle: title, fmt, rowScale: true });
+      if (view === 'table') return tableOf(box, ['Period', ...series.map((s) => s.label)], data.keys.map((k, i) => [title(k), ...series.map((s) => s.fmt((s.tip || s.values)[i]))]).reverse());
+      const modes = { line: 'line', step: 'line', dots: 'line', area: 'area', stack: 'stack', group: 'group' };
+      return xyChart(box, { keys: data.keys, mode: modes[view] || 'line', step: view === 'step', dots: view === 'dots', series, fmt, tick, title, noLegend: opts.noLegend, height: 260, axis: opts.shapes ? (v) => Math.round(v) + '%' : null, onPick: opts.onPick });
+    }
+    if (data.kind === 'heat') {
+      if (view === 'table') return tableOf(box, ['Day', ...data.cols], data.rows.map((r) => [r.label, ...r.values.map(fmt)]));
+      return heatmap(box, { ...data, fmt, colTitle: (c) => c + ':00' });
+    }
+    return empty(box);
+  }
+
+  // ==== 5. CARDS BOARD — drag to move, corner to resize, ✕ to hide, dropdown for chart type ====
+  // layout per page: { cardId: { o: order, w: width of 6, h: hidden, v: chart type, off: lines off, shapes } }
+  function mountBoard(host, { cards, key, drawBody, onRemove, tools = true }) {
+    const get = () => store.get('layout:' + key, {});
+    const set = (l) => store.set('layout:' + key, l);
+    const patch = (id, p) => { const l = get(); l[id] = { ...(l[id] || {}), ...p }; set(l); };
+    host.replaceChildren();
+    let showAll;
+    if (tools) {
+      showAll = h('button', { class: 'btn', type: 'button', text: 'Show hidden cards', onclick: () => { const l = get(); for (const c of cards) if (l[c.id]) l[c.id].h = false; set(l); apply(); cards.forEach(draw); } });
+      host.append(h('div', { class: 'board-tools' }, h('span', { class: 'note', text: 'Drag ⠿ to move · drag the corner to resize' }), showAll,
+        h('button', { class: 'btn', type: 'button', text: 'Reset layout', onclick: () => { set({}); apply(); cards.forEach(draw); } })));
+    }
+    const grid = h('div', { class: 'board' });
+    host.append(grid);
+    const els = new Map();
+    const ordered = () => cards.slice().sort((a, b) => (get()[a.id]?.o ?? cards.indexOf(a)) - (get()[b.id]?.o ?? cards.indexOf(b)));
+    const moveTo = (id, index) => { const list = ordered().filter((c) => c.id !== id); list.splice(clamp(index, 0, list.length), 0, cards.find((c) => c.id === id)); const l = get(); list.forEach((c, k) => { l[c.id] = { ...(l[c.id] || {}), o: k }; }); set(l); apply(); };
+    const viewsOf = (c) => (c.views ? SPEC.chartTypes[c.views] || c.viewList : null);
+    function apply() {
+      const l = get();
+      let hidden = 0;
+      cards.forEach((c, i) => {
+        const e = els.get(c.id), s = l[c.id] || {};
+        e.card.style.order = s.o ?? i;
+        e.card.style.gridColumn = 'span ' + (s.w || c.w || 3);
+        e.card.hidden = !!s.h;
+        if (s.h) hidden++;
+        if (e.view) e.view.value = s.v || c.view || viewsOf(c)[0][0];
+      });
+      if (showAll) showAll.disabled = !hidden;
+    }
+    function draw(c) {
+      const e = els.get(c.id);
+      if (e.card.hidden) return;
+      const s = get()[c.id] || {};
+      e.extra.replaceChildren();
+      drawBody(c, e.body, e.extra, { ...s, v: s.v || c.view || (viewsOf(c) ? viewsOf(c)[0][0] : null) }, (p) => { patch(c.id, p); draw(c); });
+    }
+    let dragId = null;
+    const clearMarks = () => grid.querySelectorAll('.over-before, .over-after').forEach((x) => x.classList.remove('over-before', 'over-after'));
+    for (const c of cards) {
+      const handle = h('div', { class: 'card-drag', draggable: 'true', title: 'Drag to move' }, h('span', { class: 'grip', text: '⠿' }), h('h2', { text: c.title }));
+      const view = viewsOf(c) ? select(viewsOf(c), c.view, (v) => { patch(c.id, { v }); draw(c); }, { label: 'Chart type' }) : null;
+      const card = h('article', { class: 'card', 'data-card': c.id },
+        h('div', { class: 'card-bar' }, handle, h('div', { class: 'card-tools' }, view,
+          h('button', { class: 'tool', type: 'button', text: '◀', title: 'Move earlier', 'aria-label': 'Move earlier', onclick: () => moveTo(c.id, ordered().indexOf(c) - 1) }),
+          h('button', { class: 'tool', type: 'button', text: '▶', title: 'Move later', 'aria-label': 'Move later', onclick: () => moveTo(c.id, ordered().indexOf(c) + 1) }),
+          h('button', { class: 'tool', type: 'button', text: '✕', title: onRemove ? 'Remove' : 'Hide card', 'aria-label': onRemove ? 'Remove' : 'Hide card', onclick: () => { if (onRemove) onRemove(c); else { patch(c.id, { h: true }); apply(); } } }))));
+      const extra = h('div', { class: 'card-extra' }), body = h('div', { class: 'card-body' }), rz = h('div', { class: 'resize', title: 'Drag to resize' });
+      card.append(extra, body, rz);
+      grid.append(card);
+      els.set(c.id, { card, body, extra, view });
+      const after = (ev) => { const r = card.getBoundingClientRect(); return ev.clientX > r.left + r.width / 2; };
+      handle.addEventListener('dragstart', (ev) => { dragId = c.id; card.classList.add('dragging'); try { ev.dataTransfer.setData('text/plain', c.id); } catch (err) { /* optional */ } });
+      handle.addEventListener('dragend', () => { dragId = null; card.classList.remove('dragging'); clearMarks(); });
+      card.addEventListener('dragover', (ev) => { if (!dragId || dragId === c.id) return; ev.preventDefault(); const a = after(ev); card.classList.toggle('over-after', a); card.classList.toggle('over-before', !a); });
+      card.addEventListener('dragleave', () => card.classList.remove('over-before', 'over-after'));
+      card.addEventListener('drop', (ev) => { if (!dragId || dragId === c.id) return; ev.preventDefault(); const id = dragId; dragId = null; clearMarks(); moveTo(id, ordered().filter((x) => x.id !== id).indexOf(c) + (after(ev) ? 1 : 0)); });
+      rz.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault();
+        const colW = (grid.clientWidth - 16 * 5) / 6, start = get()[c.id]?.w || c.w || 3, sx = ev.clientX;
+        let span = start;
+        card.classList.add('resizing');
+        const move = (e2) => { span = clamp(Math.round(start + (e2.clientX - sx) / (colW + 16)), 2, 6); card.style.gridColumn = 'span ' + span; };
+        const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); card.classList.remove('resizing'); if (span !== start) { patch(c.id, { w: span }); draw(c); } };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+      });
+    }
+    apply();
+    cards.forEach(draw);
+  }
+
+  // ==== 6. STANDARD PAGES — KPI strip, health rings, cards, server-style tables ====
+  function kpiStrip(host, f) {
+    const d = SAMPLE.overview(f);
+    const w = windowOf(f), days = (Date.parse(w.to) - Date.parse(w.from)) / DAY + 1;
+    const hasPrev = Date.parse(w.from) - days * DAY >= Date.parse(SPEC.app.dataStart); // no change shown when the previous period has no data
+    host.replaceChildren(...SPEC.kpis.map((k) => {
+      const v = d.kpis[k.id], prev = d.kpis[k.id + '_prev'];
+      const tile = h('div', { class: 'kpi', style: `--k:${k.color}` }, h('span', { class: 'kpi-label', text: k.label }), h('span', { class: 'kpi-num', text: fmtOf(k.format)(v) }));
+      if (hasPrev && prev !== undefined) {
+        const c = prev ? (v - prev) / prev : null;
+        const cls = c && k.better ? ((k.better === 'up' ? c > 0 : c < 0) ? 'good' : 'bad') : null;
+        tile.append(h('span', { class: 'kpi-chg' }, h('b', { class: cls, text: c == null ? 'new' : chg(c) }), ' vs previous period'));
+      }
+      return tile;
+    }));
+  }
+  function healthRings(box, f) {
+    const d = SAMPLE.overview(f).health;
+    box.replaceChildren(h('div', { class: 'health' }, SPEC.health.map((g) => {
+      const v = d[g.id];
+      const [word, color] = v >= 0.8 ? ['Good', 'var(--ok)'] : v >= 0.5 ? ['Watch', 'var(--warn)'] : ['Risk', 'var(--bad)'];
+      const svg = S('svg', { viewBox: '-56 -56 112 112', width: 112, height: 112, role: 'img', 'aria-label': `${g.label}: ${Math.round(v * 100)}%` });
+      S('path', { class: 'ring-bg', d: arcPath(40, 50, 0, 2 * Math.PI - 0.0001) }, svg);
+      S('path', { d: arcPath(40, 50, 0, Math.max(0.03, Math.min(1, v) * 2 * Math.PI - 0.0001)), fill: color }, svg);
+      T(svg, 0, 2, Math.round(v * 100) + '%', { class: 'ring-num', 'text-anchor': 'middle' });
+      T(svg, 0, 20, word, { class: 'ring-state', 'text-anchor': 'middle', fill: color });
+      return h('figure', { class: 'gauge' }, svg, h('figcaption', { text: g.label }));
+    })));
+  }
+  const tableMemory = {};
+  function sampleTable(box, kind, f) {
+    const def = SPEC.tables[kind];
+    const st = (tableMemory[kind] = tableMemory[kind] || { page: 1, sort: def.sort, dir: 'desc', search: '' });
+    const all = SAMPLE.table(kind, f);
+    const draw = () => {
+      let rows = all.filter((r) => !st.search || String(r[def.columns[0][0]]).toLowerCase().includes(st.search.toLowerCase()));
+      rows = rows.slice().sort((a, b) => (typeof a[st.sort] === 'string' ? String(a[st.sort]).localeCompare(b[st.sort]) : a[st.sort] - b[st.sort]) * (st.dir === 'asc' ? 1 : -1));
+      const last = Math.max(1, Math.ceil(rows.length / 10));
+      st.page = clamp(st.page, 1, last);
+      const cell = (type, v) => h('td', { class: type === 'hot' && v ? 'hot' : type === 'cap' ? 'cap' : null, text: type === 'pct' ? FMT.pct(v) : type === 'text' || type === 'cap' ? v : FMT.int(v) });
+      const table = h('table', { class: 'table' },
+        h('thead', null, h('tr', null, def.columns.map(([k, label]) => h('th', { 'aria-sort': st.sort === k ? (st.dir === 'asc' ? 'ascending' : 'descending') : 'none' },
+          h('button', { class: 'sort', type: 'button', text: label, onclick: () => { st.dir = st.sort === k && st.dir === 'desc' ? 'asc' : 'desc'; st.sort = k; draw(); } }))))),
+        h('tbody', null, rows.slice((st.page - 1) * 10, st.page * 10).map((r) => h('tr', null, def.columns.map(([k, , type]) => cell(type, r[k]))))));
+      const from = rows.length ? (st.page - 1) * 10 + 1 : 0;
+      box.replaceChildren(h('div', { class: 'stack' },
+        def.search ? h('input', { type: 'search', placeholder: 'Search', 'aria-label': 'Search', value: st.search, oninput: (e) => { st.search = e.target.value; st.page = 1; draw(); $('input[type=search]', box).focus(); } }) : null,
+        h('div', { class: 'scroll' }, table),
+        h('div', { class: 'pager' },
+          h('button', { class: 'btn', type: 'button', text: '‹ Previous', disabled: st.page <= 1, onclick: () => { st.page--; draw(); } }),
+          h('button', { class: 'btn', type: 'button', text: 'Next ›', disabled: st.page >= last, onclick: () => { st.page++; draw(); } }),
+          h('span', { class: 'note', text: `${from}–${Math.min(rows.length, st.page * 10)} of ${rows.length} · page ${st.page} of ${last}` }))));
+    };
+    draw();
+  }
+  function drawStandardCard(c, body, extra, s, patch, f) {
+    if (c.kind === 'health') return healthRings(body, f);
+    if (c.kind === 'table') return sampleTable(body, c.table, f);
+    const data = SAMPLE.widget(c, f); // <-- real app: await fetch(`/api/widget/${c.widget}?from&to&project`)
+    const multi = data.kind === 'time' && data.series.length > 1;
+    if (c.chips && multi) {
+      const off = new Set(s.off || []);
+      extra.append(h('div', { class: 'chips' }, data.series.map((ser, i) => h('button', {
+        class: 'chip', type: 'button', 'aria-pressed': String(!off.has(ser.name)), style: `--k:${ser.color === 'critical' ? 'var(--bad)' : colorFor(data.dim, ser.name, i)}`, text: labelFor(data.dim, ser.label),
+        onclick: () => { const next = new Set(off); if (next.has(ser.name)) next.delete(ser.name); else next.add(ser.name); if (next.size < data.series.length) patch({ off: [...next] }); },
+      }))));
+    }
+    if (c.shapes && data.mixedUnits) {
+      extra.append(h('div', { class: 'seg small', role: 'group', 'aria-label': 'Scale' }, [[false, 'Actual values'], [true, 'Compare shapes']].map(([v, l]) =>
+        h('button', { type: 'button', 'aria-pressed': String(!!s.shapes === v), text: l, onclick: () => patch({ shapes: v }) }))));
+    }
+    render(body, data, s.v, { off: s.off, shapes: c.shapes && s.shapes, noLegend: c.chips && multi });
+  }
+  function standardPage(area, page, f) {
+    if (page.kpis) { const k = h('div', { class: 'kpis' }); area.append(k); kpiStrip(k, f); }
+    const host = h('div');
+    area.append(host);
+    mountBoard(host, { cards: page.cards, key: page.id, drawBody: (c, body, extra, s, patch) => drawStandardCard(c, body, extra, s, patch, f) });
+  }
+
+  // ==== 7. BUILD A VIEW — pick a table, a calculation, a grouping, filters and a chart ====
+  const MODEL = SPEC.model;
+  function fieldsFrom(base) {
+    const out = [];
+    const t = MODEL.tables[base];
+    for (const [col, [label, type]] of Object.entries(t.fields)) out.push({ path: col, label, type, group: t.label });
+    for (const l of t.links || []) for (const [col, [label, type]] of Object.entries(MODEL.tables[l.to].fields)) out.push({ path: `${l.col}.${col}`, label: `${l.name} › ${label}`, type, group: l.name });
+    return out;
+  }
+  const fieldOf = (base, ref) => fieldsFrom(base).find((f) => f.path === String(ref).split('|')[0]);
+  function valueOf(base, ref) {
+    const [path, part] = String(ref).split('|');
+    const [a, b] = path.split('.');
+    const get = b ? (r) => { const t = SAMPLE.model.items[r[a] - 1]; return t ? t[b] : null; } : (r) => r[a];
+    if (part === 'month') return (r) => (get(r) ? String(get(r)).slice(0, 7) : null);
+    if (part === 'weekday') return (r) => (get(r) ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(get(r)).getUTCDay()] : null);
+    return get;
+  }
+  function runView(v) {
+    // real app: POST /api/model/query { spec: v } — the server builds SQL with parameters (see SPEC.contracts.viewQuery)
+    let rows = SAMPLE.model[v.base];
+    for (const f of v.filters || []) if (f.field && f.value !== '') { const g = valueOf(v.base, f.field); rows = rows.filter((r) => String(g(r)) === String(f.value)); }
+    const m = v.fn === 'count' ? null : valueOf(v.base, v.field);
+    const calc = (rs) => {
+      if (v.fn === 'count') return rs.length;
+      const vals = rs.map(m).filter((x) => x != null);
+      if (v.fn === 'distinct') return new Set(vals).size;
+      if (!vals.length) return null;
+      if (v.fn === 'sum') return vals.reduce((a, b) => a + b, 0);
+      if (v.fn === 'avg') return vals.reduce((a, b) => a + b, 0) / vals.length;
+      return v.fn === 'min' ? Math.min(...vals) : Math.max(...vals);
+    };
+    const res = { rows, total: calc(rows) };
+    if (v.group) {
+      const g = valueOf(v.base, v.group);
+      const map = new Map();
+      for (const r of rows) { const k = g(r) ?? '(none)'; if (!map.has(k)) map.set(k, []); map.get(k).push(r); }
+      let groups = [...map].map(([key, rs]) => ({ key, rows: rs, value: calc(rs) }));
+      const isTime = String(v.group).endsWith('|month');
+      const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      groups.sort((a, b) => (isTime ? String(a.key).localeCompare(b.key) : String(v.group).endsWith('|weekday') ? weekdays.indexOf(a.key) - weekdays.indexOf(b.key) : (b.value || 0) - (a.value || 0)));
+      if (!isTime && groups.length > 10) { const rest = groups.slice(10).flatMap((x) => x.rows); groups = groups.slice(0, 10).concat([{ key: 'Other', rows: rest, value: calc(rest) }]); }
+      res.groups = groups;
+      res.isTime = isTime;
+    }
+    return res;
+  }
+  const BLANK = { title: '', base: 'items', fn: 'count', field: '', group: 'status', filters: [], chart: 'bar' };
+  const STARTERS = [
+    { id: 's1', title: 'Hours logged by project', base: 'timelogs', fn: 'sum', field: 'hours', group: 'item_id.project', filters: [], chart: 'bar' },
+    { id: 's2', title: 'Average cycle time by priority', base: 'items', fn: 'avg', field: 'cycle_hours', group: 'priority', filters: [], chart: 'column' },
+    { id: 's3', title: 'Work items created per month', base: 'items', fn: 'count', group: 'created|month', filters: [], chart: 't:line' },
+    { id: 's4', title: 'Open work by assignee', base: 'items', fn: 'count', group: 'assignee', filters: [{ field: 'status', value: 'To Do' }], chart: 'donut' },
+  ];
+  const CHARTS = [...SPEC.chartTypes.category, ...SPEC.chartTypes.timeNoStack.filter(([x]) => x !== 'table').map(([x, l]) => ['t:' + x, l + ' (over time)']), ['kpi', 'Single number']];
+  const describe = (v) => (v.fn === 'count' ? 'Count of ' + MODEL.tables[v.base].label.toLowerCase() : (MODEL.functions.find(([f]) => f === v.fn) || [])[1] + ' ' + ((fieldOf(v.base, v.field) || {}).label || '…').toLowerCase()) +
+    (v.group ? ' by ' + ((fieldOf(v.base, v.group) || {}).label || '').toLowerCase() + (String(v.group).includes('|') ? ' (' + v.group.split('|')[1] + ')' : '') : '');
+  function viewPayload(res, v) {
+    if (!res.groups) return null;
+    if (res.isTime) return { kind: 'time', grain: 'month', fmt: 'auto', keys: res.groups.map((g) => g.key + (String(g.key).length === 7 ? '-01' : '')), series: [{ name: 'value', label: describe(v), values: res.groups.map((g) => g.value) }] };
+    return { kind: 'category', fmt: 'auto', items: res.groups.map((g) => ({ name: g.key, label: String(g.key), value: g.value || 0 })) };
+  }
+  function drawView(box, v, onPick) {
+    const res = runView(v);
+    if (v.chart === 'kpi') return box.replaceChildren(h('div', { style: 'font:44px var(--serif);color:var(--accent);padding:12px 0' }, fmtOf('auto')(res.total)));
+    const data = viewPayload(res, v);
+    if (!data) return empty(box, 'Pick a field in "Group by".');
+    // time charts need a month grouping; with any other grouping they fall back to columns
+    const view = data.kind === 'time' ? (v.chart.startsWith('t:') ? v.chart.slice(2) : 'line') : v.chart.startsWith('t:') ? 'column' : v.chart;
+    render(box, data, view, { onPick: onPick && ((d) => onPick(typeof d === 'number' ? res.groups[d] : res.groups.find((g) => g.key === d.name))) });
+    return res;
+  }
+  function buildPage(area) {
+    const draft = store.get('draft', STARTERS[0]);
+    const up = (p) => { store.set('draft', { ...draft, ...p }); route(); };
+    const saved = store.get('views', STARTERS);
+    const opts = (accept, parts) => { const g = new Map(); for (const f of fieldsFrom(draft.base)) { if (!accept(f)) continue; if (!g.has(f.group)) g.set(f.group, []); g.get(f.group).push([f.path, f.label.split(' › ').pop()]); if (parts && f.type === 'date') for (const [p, l] of MODEL.dateParts) g.get(f.group).push([`${f.path}|${p}`, `${f.label.split(' › ').pop()} (${l})`]); } return [...g].map(([group, items]) => ({ group, items })); };
+    const step = (n, label, ...kids) => h('div', { class: 'step' }, h('span', { class: 'step-num', text: n }), h('b', { text: label }), h('div', { class: 'step-body' }, kids));
+    const fld = (label, control) => h('label', { class: 'field' }, h('span', { text: label }), control);
+    const editor = h('section', { class: 'card' },
+      h('div', { class: 'row' },
+        h('input', { type: 'text', value: draft.title || '', placeholder: describe(draft), 'aria-label': 'Name of this view', style: 'flex:1 1 18rem;font-weight:600', onchange: (e) => up({ title: e.target.value }) }),
+        h('div', { class: 'toolbar' },
+          h('button', { class: 'btn primary', type: 'button', text: 'Save view', onclick: () => { const v = { ...draft, id: 'v' + Date.now(), title: draft.title || describe(draft) }; store.set('views', [...saved, v]); store.set('draft', v); toast('Saved to My views.'); route(); } }),
+          h('button', { class: 'btn', type: 'button', text: 'Add to My dashboard', onclick: () => { const v = { ...draft, id: draft.id || 'v' + Date.now(), title: draft.title || describe(draft) }; if (!saved.some((x) => x.id === v.id)) store.set('views', [...saved, v]); const b = store.get('board', []); if (!b.includes(v.id)) store.set('board', [...b, v.id]); store.set('draft', v); toast('Added to My dashboard.'); } }),
+          h('button', { class: 'btn', type: 'button', text: 'Start over', onclick: () => up({ ...BLANK, id: null }) }))),
+      h('div', { class: 'steps' },
+        step(1, 'Start from', fld('Table', select(Object.entries(MODEL.tables).map(([k, t]) => [k, t.label]), draft.base, (v) => up({ base: v, field: '', group: '', filters: [] })))),
+        step(2, 'What to calculate', fld('Calculate', select(MODEL.functions, draft.fn, (v) => up({ fn: v }))),
+          draft.fn === 'count' ? null : fld('Field', select(opts((f) => draft.fn === 'distinct' || f.type === 'number'), draft.field, (v) => up({ field: v }), { blank: 'Choose a field…' }))),
+        step(3, 'Group by', fld('Field', select(opts((f) => f.type !== 'number', true), draft.group, (v) => up({ group: v, chart: v.endsWith('|month') ? 't:line' : draft.chart.startsWith('t:') ? 'bar' : draft.chart }), { blank: 'No grouping' }))),
+        step(4, 'Show as', fld('Chart', select(CHARTS, draft.chart, (v) => up({ chart: v }))))),
+      h('div', { class: 'stack' }, h('b', { text: 'Only include rows where' }),
+        (draft.filters || []).map((f, i) => h('div', { class: 'toolbar' },
+          select(opts((x) => x.type === 'text'), f.field, (v) => up({ filters: draft.filters.map((x, k) => (k === i ? { field: v, value: '' } : x)) }), { blank: 'Choose a field…', label: 'Field' }),
+          h('span', { class: 'note', text: 'is' }),
+          f.field ? select([...new Set(SAMPLE.model[draft.base].map(valueOf(draft.base, f.field)))].filter((x) => x != null).sort().map((x) => [x, x]), f.value, (v) => up({ filters: draft.filters.map((x, k) => (k === i ? { ...x, value: v } : x)) }), { blank: 'Choose…', label: 'Value' }) : null,
+          h('button', { class: 'tool', type: 'button', text: '✕', 'aria-label': 'Remove filter', onclick: () => up({ filters: draft.filters.filter((x, k) => k !== i) }) }))),
+        h('div', null, h('button', { class: 'btn', type: 'button', text: '+ Add filter', onclick: () => up({ filters: [...(draft.filters || []), { field: '', value: '' }] }) }))));
+    const box = h('div', { class: 'card-body' });
+    const records = h('div');
+    const result = h('section', { class: 'card' }, h('h2', { style: 'font-size:15px', text: draft.title || describe(draft) }), box);
+    area.append(editor, result, records);
+    const res = drawView(box, draft, (g) => {
+      // real app: POST /api/model/records { spec, sel, page }
+      if (!g) return;
+      const cols = Object.keys(MODEL.tables[draft.base].fields);
+      records.replaceChildren(h('section', { class: 'card' }, h('div', { class: 'row' }, h('h2', { style: 'font-size:15px', text: `Records: ${g.key} (${g.rows.length})` }), h('button', { class: 'btn', type: 'button', text: 'Close', onclick: () => records.replaceChildren() })),
+        h('div', { class: 'scroll tall' }, h('table', { class: 'table' }, h('thead', null, h('tr', null, cols.map((c) => h('th', { text: MODEL.tables[draft.base].fields[c][0] })))),
+          h('tbody', null, g.rows.slice(0, 10).map((r) => h('tr', null, cols.map((c) => h('td', { text: r[c] == null ? '—' : String(r[c]) })))))))));
+    });
+    if (res) result.append(h('p', { class: 'note', text: `${res.rows.length} rows · result ${fmtOf('auto')(res.total)} · click a bar or slice to see its records` }));
+    area.append(h('section', { class: 'card' }, h('h2', { style: 'font-size:15px', text: 'My views' }),
+      h('div', { class: 'gallery' }, saved.map((v) => h('div', { class: 'tile' }, h('b', { text: v.title }), h('span', { class: 'note', text: describe(v) }),
+        h('div', { class: 'toolbar' },
+          h('button', { class: 'btn primary', type: 'button', text: 'Open', onclick: () => { store.set('draft', v); route(); } }),
+          h('button', { class: 'btn danger', type: 'button', text: 'Delete', onclick: () => { store.set('views', saved.filter((x) => x.id !== v.id)); store.set('board', store.get('board', []).filter((x) => x !== v.id)); route(); } })))))));
+  }
+
+  // ==== 8. MY DASHBOARD — saved views as movable, resizable cards ====
+  function minePage(area) {
+    const views = store.get('views', STARTERS);
+    const ids = store.get('board', []).filter((id) => views.some((v) => v.id === id));
+    if (!ids.length) return area.append(h('section', { class: 'card' }, h('h2', { style: 'font-size:15px', text: 'Nothing pinned yet' }), h('p', { class: 'note', text: 'Open Build a view and press "Add to My dashboard".' }), h('div', null, h('a', { class: 'btn primary', href: '#build', text: 'Go to Build a view' }))));
+    const host = h('div');
+    area.append(host);
+    const cards = ids.map((id) => { const v = views.find((x) => x.id === id); return { id, title: v.title, w: 3, views: 'mine', view: v.chart, spec: v }; });
+    mountBoard(host, { cards, key: 'mine',
+      onRemove: (c) => { store.set('board', store.get('board', []).filter((x) => x !== c.id)); route(); },
+      drawBody: (c, body, extra, s) => drawView(body, { ...c.spec, chart: s.v || c.spec.chart }) });
+  }
+  SPEC.chartTypes.mine = CHARTS; // the chart list of saved views, used by the My dashboard cards
+
+  // ==== 9. BLUEPRINT — the structure explained on the page, generated from the spec ====
+  function blueprintPage(area) {
+    const sec = (title, ...kids) => h('section', { class: 'card' }, h('h2', { style: 'font-size:16px', text: title }), ...kids);
+    const tokens = ['--accent', '--accent-dark', '--bg', '--panel', '--fg', '--fg-muted', '--line', '--ok', '--warn', '--bad', '--c0', '--c1', '--c2', '--c3', '--c4', '--c5', '--c6', '--c7'];
+    const cs = getComputedStyle(document.documentElement);
+    area.append(h('div', { class: 'bp' },
+      sec('What this is', h('p', { text: 'A static mockup and reference for analytics dashboards. Every page, card and chart is generated from the JSON spec at the top of this file (#dashboard-spec). All numbers are sample data. To build the same dashboard in another application, keep the structure and contracts below and change the spec and the data source.' })),
+      h('div', { class: 'two' },
+        sec('Layout', h('div', { class: 'wire' },
+          h('div', { class: 'wire-side' }, 'Sidebar', h('br'), 'brand · pages · data note'),
+          h('div', { class: 'wire-main' },
+            h('div', { class: 'wire-band' }, 'Top band: period shown · period buttons · project · reset'),
+            h('div', { class: 'wire-kpis' }, [...Array(8)].map((x, i) => h('span', { text: 'KPI ' + (i + 1) }))),
+            h('div', { class: 'wire-board' }, h('span', { style: 'grid-column:span 4', text: 'Card w=4' }), h('span', { style: 'grid-column:span 2', text: 'w=2' }), h('span', { style: 'grid-column:span 3', text: 'w=3' }), h('span', { style: 'grid-column:span 3', text: 'w=3' }), h('span', { style: 'grid-column:span 6', text: 'w=6' })))),
+          h('p', { class: 'note', text: SPEC.layout.page })),
+        sec('Design tokens', h('div', { class: 'swatches' }, tokens.map((t) => h('div', { class: 'swatch' }, h('span', { style: `background:var(${t})` }), h('code', { text: t }), h('span', { class: 'note', text: cs.getPropertyValue(t).trim() })))),
+          h('ul', null, SPEC.chartRules.map((r) => h('li', { text: r }))))),
+      sec('Components', h('div', { class: 'scroll' }, h('table', { class: 'table' }, h('thead', null, h('tr', null, ['Component', 'Where in the code', 'Does'].map((x) => h('th', { text: x })))),
+        h('tbody', null, [
+          ['Sidebar navigation', 'data-region="sidebar", #nav', 'One link per spec page; current page highlighted'],
+          ['Filter band', 'data-region="topbar"', 'Period presets + custom dates + project; every standard page re-renders'],
+          ['KPI tile', 'kpiStrip()', 'Number, change vs previous period (▲ good / ▼ bad by "better"), colour from spec'],
+          ['Health ring', 'healthRings()', 'Share with Good/Watch/Risk word and colour (rule in spec.healthRule)'],
+          ['Card frame', 'mountBoard()', 'Title, drag handle, chart-type select, ◀ ▶, ✕, resize corner; layout remembered'],
+          ['Line chips', 'drawStandardCard()', 'Toggle lines of a multi-line card; "Compare shapes" for mixed units'],
+          ['Chart renderer', 'render() + section 3', 'Draws category / time / heat payloads in 18 chart types'],
+          ['Paged table', 'sampleTable()', '10 rows a page, sort by header, search'],
+          ['View builder', 'buildPage()', 'Table → calculation → group → filters → chart; records on click; save and pin'],
+          ['My dashboard', 'minePage()', 'Pinned views as a board of cards'],
+        ].map((r) => h('tr', null, r.map((c) => h('td', { text: c })))))))),
+      sec('Pages and cards (from the spec)', h('div', { class: 'scroll' }, h('table', { class: 'table' }, h('thead', null, h('tr', null, ['Page', 'Card', 'Data kind', 'Width', 'Chart types'].map((x) => h('th', { text: x })))),
+        h('tbody', null, SPEC.pages.flatMap((p) => (p.cards || [{ title: '(' + p.special + ' page)' }]).map((c) => h('tr', null, h('td', { text: p.label }), h('td', { text: c.title }), h('td', { text: c.kind || '' }), h('td', { text: c.w || '' }), h('td', { text: c.views ? SPEC.chartTypes[c.views].map((x) => x[1]).join(', ') : '' })))))))),
+      h('div', { class: 'two' },
+        sec('Data contracts (what the backend returns)', h('pre', { text: JSON.stringify(SPEC.contracts, null, 2) })),
+        sec('Interactions', h('ul', null, SPEC.interactions.map((x) => h('li', { text: x }))))),
+      sec('How to reuse this in another application', h('ol', null,
+        h('li', null, 'Copy this file. Edit ', h('code', { text: '#dashboard-spec' }), ': app name, period options, KPIs, pages and cards for the new domain.'),
+        h('li', null, 'Build one API endpoint per card that returns the matching contract (category, time, heat or table) for the period and filters.'),
+        h('li', null, 'Replace ', h('code', { text: 'SAMPLE.overview / widget / table / model' }), ' with fetch() calls; keep the payload shapes.'),
+        h('li', null, 'Keep the rules: blue family for data, red only for problems; no stacking of different units; tables page 10 rows; every value has a tooltip.'),
+        h('li', null, 'For Build a view, describe the tables, fields and links on the server and turn choices into SQL with parameters; never accept SQL from the browser.'),
+        h('li', null, 'Store layouts and saved views per user (here: localStorage; in an app: an API), never mixed into business data.'))),
+    ));
+  }
+
+  // ==== 10. FILTERS AND ROUTER ====
+  const filters = () => ({ range: SPEC.filters.range.default, project: '', from: '', to: '', ...store.get('filters', {}) });
+  const setFilters = (p) => { store.set('filters', { ...filters(), ...p }); syncBar(); route(); };
+  function syncBar() {
+    const f = filters(), w = windowOf(f);
+    document.querySelectorAll('#range button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.id === f.range)));
+    $('#custom-dates').hidden = f.range !== 'custom';
+    $('#from').value = w.from;
+    $('#to').value = w.to;
+    $('#project').value = f.project;
+    $('#window-label').textContent = `${fDate(w.from)} – ${fDate(w.to)}`;
+  }
+  function route() {
+    const id = location.hash.slice(1);
+    const page = SPEC.pages.find((p) => p.id === id) || SPEC.pages[0];
+    document.querySelectorAll('#nav a').forEach((a) => a.setAttribute('aria-current', a.dataset.page === page.id ? 'page' : 'false'));
+    $('#top').hidden = !!page.special;
+    document.title = page.label + ' · ' + SPEC.app.name + ' mockup';
+    const area = h('div', { class: 'page-area' });
+    $('#page').replaceChildren(h('h1', { class: 'page-title', text: page.label }), area);
+    if (page.special === 'build') return buildPage(area);
+    if (page.special === 'mine') return minePage(area);
+    if (page.special === 'blueprint') return blueprintPage(area);
+    standardPage(area, page, filters());
+  }
+  function start() {
+    $('#brand').append(SPEC.app.name, h('small', { text: SPEC.app.tagline }));
+    const nav = $('#nav');
+    SPEC.pages.forEach((p) => { if (p.special === 'blueprint') nav.append(h('div', { class: 'sep' })); nav.append(h('a', { href: '#' + p.id, 'data-page': p.id, text: p.label })); });
+    $('#side-note').textContent = `Sample data as of ${fDate(SPEC.app.asOf)}. Replace with your API.`;
+    for (const o of SPEC.filters.range.options) {
+      $('#range').append(h('button', { type: 'button', 'data-id': o.id, text: o.label, onclick: () => {
+        if (o.id === 'custom') { const w = windowOf(filters()); setFilters({ range: 'custom', from: w.from, to: w.to }); } else setFilters({ range: o.id });
+      } }));
+    }
+    for (const p of SPEC.filters.project.options) $('#project').append(new Option(p, p));
+    $('#project').addEventListener('change', (e) => setFilters({ project: e.target.value }));
+    for (const el of [$('#from'), $('#to')]) el.addEventListener('change', () => { if ($('#from').value && $('#to').value) setFilters({ range: 'custom', from: $('#from').value, to: $('#to').value }); });
+    $('#reset').addEventListener('click', () => setFilters({ range: SPEC.filters.range.default, project: '', from: '', to: '' }));
+    let t;
+    window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(route, 200); });
+    window.addEventListener('hashchange', route);
+    syncBar();
+    route();
+  }
+  start();
+})();
+</script>
+</body>
+</html>
