@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acme back office</title>
+  <link rel="icon" href="data:,">
+  <style>
+    /* The host application's own look. The studio's styles stay inside its element. */
+    body { margin: 0; font: 15px/1.5 Georgia, serif; background: #f6f3ee; color: #2b2622; }
+    .host-bar { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; padding: 10px 20px; background: #2b2622; color: #f6f3ee; }
+    .host-bar b { font-size: 18px; margin-right: 12px; }
+    .host-bar a { color: #f6f3ee; text-decoration: none; opacity: .8; }
+    .host-bar a[aria-current="page"] { opacity: 1; border-bottom: 2px solid #e0a458; }
+    .host-bar .who { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+    .host-page { padding: 16px 20px; }
+    .host-home { display: flex; flex-wrap: wrap; gap: 16px; }
+    .host-card { background: #fff; border: 1px solid #e2dcd2; border-radius: 6px; padding: 14px 18px; min-width: 14rem; }
+    .host-card big { display: block; font-size: 28px; }
+    /* the element the studio is mounted in: it fills the window below the host's bar */
+    #analytics { --ds-height: calc(100vh - 52px); }
+    button, select { font: inherit; }
+  </style>
+</head>
+<body>
+  <header class="host-bar">
+    <b>Acme back office</b>
+    <a href="#home" id="nav-home">Home</a>
+    <a href="#/shop/" id="nav-analytics">Analytics</a>
+    <span class="who">Signed in as <select id="user" aria-label="Signed in as"></select></span>
+  </header>
+  <section class="host-page" id="home" hidden>
+    <h1>Good morning</h1>
+    <div class="host-home" id="home-cards"></div>
+    <p>These numbers come from the host's own endpoint, which asks the data studio service (<code>studio.query</code>).</p>
+  </section>
+  <div id="analytics" hidden></div>
+
+  <script type="module">
+    // INTEGRATION 4: show the studio inside the host's page
+    import { mount } from '/analytics/assets/studio.js';
+
+    const userSel = document.getElementById('user');
+    const users = await (await fetch('/api/users')).json();
+    const me = (document.cookie.match(/acme_user=(\w+)/) || [, 'alice'])[1];
+    for (const u of users) userSel.append(new Option(u.name, u.id));
+    userSel.value = me;
+    userSel.addEventListener('change', () => { document.cookie = `acme_user=${userSel.value}; path=/`; location.reload(); });
+
+    let studio = null;
+    async function show() {
+      const home = location.hash === '' || location.hash === '#home';
+      document.getElementById('home').hidden = !home;
+      document.getElementById('analytics').hidden = home;
+      document.getElementById('nav-home').setAttribute('aria-current', home ? 'page' : 'false');
+      document.getElementById('nav-analytics').setAttribute('aria-current', home ? 'false' : 'page');
+      if (home) {
+        if (studio) { studio.destroy(); studio = null; }
+        const h = await (await fetch('/api/home')).json();
+        const money = (v) => '$' + Math.round(v).toLocaleString();
+        document.getElementById('home-cards').innerHTML = '';
+        for (const [label, value] of [['Revenue, last 30 days', money(h.revenue30d)], ['Orders, last 30 days', h.orders30d.toLocaleString()], ['Shared dashboards', h.dashboards.length]]) {
+          const c = document.createElement('div');
+          c.className = 'host-card';
+          c.append(Object.assign(document.createElement('span'), { textContent: label }), Object.assign(document.createElement('big'), { textContent: value }));
+          document.getElementById('home-cards').append(c);
+        }
+      } else if (!studio) {
+        studio = await mount(document.getElementById('analytics'), { api: '/analytics/api', title: 'Acme analytics' });
+      }
+    }
+    addEventListener('hashchange', show);
+    show();
+  </script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+/* What the module adds when it lives inside another application's page. */
+:root { display: block; background: var(--bg); color: var(--fg); font: 14px/1.45 var(--font); }
+/* the studio's height follows --ds-height (default: the window); hosts set it on the element they mount into */
+.app { min-height: var(--ds-height, 100vh); }
+.rail-inner { max-height: var(--ds-height, 100vh); }
+.model-body { height: calc(var(--ds-height, 100vh) - 200px); }
+/* without its own side menu, the studio takes the whole width and the host navigates */
+:root.no-rail .app { grid-template-columns: minmax(0, 1fr); }
+:root.no-rail .rail { display: none; }
+/* people who may not change the model see it without the controls that change it */
+.model-page.readonly .mt-dot, .model-page.readonly .mt-x, .model-page.readonly .mt-head input[type="checkbox"],
+.model-page.readonly .model-sel, .model-page.readonly .side-body .toolbar, .model-page.readonly .side-body select,
+.model-page.readonly .side-body button.btn { display: none; }
+.model-page.readonly .mt-col { cursor: default; }
+.dash-nav + .dash-nav { border-top: 1px solid var(--line); padding-top: 6px; margin-top: 4px; }

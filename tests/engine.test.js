@@ -332,7 +332,9 @@ test('relationships defined by the source show as such and can be hidden and put
   await call('POST', '/api/s/helpdesk/query', { spec: { base: 'tickets', group: 'customer_id.region' } }, 400);
   await modelCall('helpdesk', 'unhide', { sigs: hidden.hidden.map((h) => h.sig) });
   const res = await call('POST', '/api/s/helpdesk/query', { spec: { base: 'tickets', group: 'customer_id.region' } });
-  assert.strictEqual(res.groups.reduce((s, g) => s + g.values[0], 0), data.tickets.length);
+  // the server's dummy data ends today, so compare with its own row count rather than a fixed day's
+  const rows = (await call('GET', '/api/s/helpdesk/schema')).tables.tickets.rows;
+  assert.strictEqual(res.groups.reduce((s, g) => s + g.values[0], 0), rows);
 });
 
 test('finding relationships among 150 tables stays quick and exact', async () => {
